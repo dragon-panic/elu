@@ -1,0 +1,22 @@
+{"ts":"2026-03-08T16:18:49.721672973+00:00","action":"create","node_id":"WKIW","detail":"elu — universal content-addressed layer engine"}
+{"ts":"2026-03-08T16:19:01.338626457+00:00","action":"edit","node_id":"WKIW"}
+{"ts":"2026-03-08T16:19:08.670226197+00:00","action":"create","node_id":"WKIW.VJp1","detail":"Content-addressed store"}
+{"ts":"2026-03-08T16:19:08.671512134+00:00","action":"create","node_id":"WKIW.LszD","detail":"Package manifest format"}
+{"ts":"2026-03-08T16:19:08.672653246+00:00","action":"create","node_id":"WKIW.zRCQ","detail":"Layer unpacking and stacking"}
+{"ts":"2026-03-08T16:19:08.674043010+00:00","action":"create","node_id":"WKIW.wX0h","detail":"Dependency resolver"}
+{"ts":"2026-03-08T16:19:08.675362126+00:00","action":"create","node_id":"WKIW.ar0g","detail":"Importers (apt, npm, pip)"}
+{"ts":"2026-03-08T16:19:08.676469869+00:00","action":"create","node_id":"WKIW.jfvm","detail":"CLI (clap)"}
+{"ts":"2026-03-08T16:19:08.677704848+00:00","action":"create","node_id":"WKIW.lMYk","detail":"Output formats (tar, dir, qcow2)"}
+{"ts":"2026-03-08T16:19:08.679014724+00:00","action":"create","node_id":"WKIW.Oe2G","detail":"Registry (publish/fetch)"}
+{"ts":"2026-03-08T16:19:08.680404568+00:00","action":"create","node_id":"WKIW.QV3o","detail":"Seguro integration"}
+{"ts":"2026-03-08T16:20:24.801977441+00:00","action":"edit","node_id":"WKIW.VJp1"}
+{"ts":"2026-03-08T16:20:24.803107323+00:00","action":"edit","node_id":"WKIW.LszD"}
+{"ts":"2026-03-08T16:20:24.804213566+00:00","action":"edit","node_id":"WKIW.zRCQ"}
+{"ts":"2026-03-08T16:20:24.805336948+00:00","action":"edit","node_id":"WKIW.wX0h"}
+{"ts":"2026-03-08T16:20:24.806421901+00:00","action":"edit","node_id":"WKIW.ar0g"}
+{"ts":"2026-03-08T16:20:24.807469226+00:00","action":"edit","node_id":"WKIW.jfvm"}
+{"ts":"2026-03-08T16:20:24.808481882+00:00","action":"edit","node_id":"WKIW.lMYk"}
+{"ts":"2026-03-08T16:20:24.809520897+00:00","action":"edit","node_id":"WKIW.Oe2G"}
+{"ts":"2026-03-08T16:20:24.810677118+00:00","action":"edit","node_id":"WKIW.QV3o"}
+{"ts":"2026-03-08T16:20:34.914524778+00:00","action":"surface","node_id":"WKIW.VJp1"}
+{"ts":"2026-03-08T16:20:34.916006408+00:00","action":"surface","node_id":"WKIW.LszD"}
