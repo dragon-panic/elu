@@ -1,32 +1,34 @@
-## Importers (apt, npm, pip)
+# Importers (apt, npm, pip)
 
-Bridge existing ecosystems into elu's universal format.
+Bridge external package ecosystems into elu. Each importer takes an
+external reference and produces native elu packages — same shape as
+hand-authored ones, same resolver, same stacker, same outputs.
 
-### Importer trait
-```rust
-trait Importer {
-    fn fetch(&self, name: &str, version: &str) -> Result<TempDir>;  // download
-    fn manifest(&self, name: &str, version: &str) -> Result<PackageManifest>;  // generate
-    fn pack(&self, fetched: &Path) -> Result<PathBuf>;  // tarball
-}
-```
+**Spec:** [`docs/prd/importers.md`](../docs/prd/importers.md)
 
-### apt importer
-- `apt download <pkg>` → extract .deb → repack data.tar as elu tarball
-- Parse Depends from control file → elu deps
-- Cache downloaded .debs
+## Key decisions (from PRD)
 
-### npm importer
-- `npm pack <pkg>` → already a tarball, repack with elu structure
-- Parse dependencies from package.json → elu deps
+- 1:1 mapping: one upstream package → one elu package with one
+  layer. Upstream dependency edges become elu `[[dependency]]`
+  edges. Preserves dedup and provenance.
+- Reserved namespaces: `debian/`, `npm/`, `pip/`. Imported packages
+  carry `kind = "debian" | "npm" | "pip"` and their original
+  control/metadata in `[metadata.<type>]`.
+- `--closure` walks transitive upstream deps and imports them all.
+  Without it, deps are left as unresolved elu references.
+- Upstream tarballs are cached alongside the store and subject to the
+  same GC rules.
+- postinst/preinst/lifecycle scripts are **not** executed. Imported
+  layers are just files; lifecycle is the consumer's concern.
+- No source builds. `.deb`, tarball, wheel only.
+- v1 scope: runtime `dependencies` only for npm (no dev/optional/peer).
+  Wheels only for pip (no sdist).
 
-### pip importer
-- `pip download --no-deps <pkg>` → wheel/sdist
-- Unpack wheel → repack as elu tarball
-- Parse Requires-Dist from METADATA → elu deps
+## Acceptance
 
-### Acceptance
-- `elu import apt curl` → package in store with correct deps
-- `elu import npm @anthropic-ai/claude-code` → package in store
-- `elu import pip playwright` → package in store
-- Re-import same version is a no-op (hash match)
+- `elu import apt <name>` produces a valid `debian/<name>` package.
+- `elu import npm <name>` produces a valid `npm/<name>` package.
+- `elu import pip <name>` produces a valid `pip/<name>` package.
+- `--closure` resolves and imports transitive deps.
+- Imported packages compose with hand-authored ones through the
+  normal resolver (no special-case code paths).

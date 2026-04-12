@@ -1,15 +1,38 @@
-## Registry (publish/fetch)
+# Registry (publish/fetch)
 
-Content-addressed remote store. Packages are pushed/pulled by hash.
+Thin HTTP lookup service that maps `namespace/name@version` to a
+manifest hash and tells clients where to fetch the blobs. Not a
+blob host.
 
-### Design
-- Simple HTTP API: PUT /blob/<hash>, GET /blob/<hash>, GET /index/<name>
-- Index maps name+version → hash
-- Could start as a static file host (S3, R2) + JSON index
-- Signing: packages signed with ed25519, verified on fetch
+**Spec:** [`docs/prd/registry.md`](../docs/prd/registry.md)
 
-### Acceptance
-- `elu publish <pkg>` uploads tarball + manifest to registry
-- `elu fetch <name>@<version>` downloads to local store
-- Hash verification on fetch (reject tampered packages)
-- v1: local filesystem "registry" for testing
+## Key decisions (from PRD)
+
+- Registry stores metadata (hash, kind, description, tags, publisher,
+  blob URLs, optional signature) — **never** the manifest or blob
+  bytes. Bytes live in operator-chosen object storage reached via
+  presigned URLs.
+- Publish flow: `POST /packages/<ns>/<name>/<version>` with manifest
+  + blob list → server returns upload URLs for missing blobs →
+  client PUTs blobs → `POST /commit` finalizes. Atomic; versions
+  immutable once committed.
+- Fetch flow: `GET /packages/<ns>/<name>/<version>` returns the
+  manifest hash and blob URLs; client fetches via plain HTTP and
+  verifies every byte by hash. A compromised registry cannot
+  substitute content.
+- Semver resolution is client-side. Registry just lists versions.
+- Namespaces are publisher-scoped. Verified publishers get a badge.
+  Reserved: `debian/`, `npm/`, `pip/` (not directly publishable).
+- Visibility: public or org-private. Public packages cannot depend
+  on private ones (rejected at publish).
+- `$ELU_REGISTRY` supports a fallback chain (comma-separated).
+- Self-hostable: the HTTP API is the contract, implementation is not.
+
+## Acceptance
+
+- Publish API: begin → upload → commit, atomic visibility.
+- Fetch API: package record with blob URLs, version list endpoint.
+- Search API: `q`, `kind`, `tag`, `namespace` filters.
+- Client verifies every fetched byte against declared hashes.
+- Private package visibility is enforced on read as well as publish.
+- Registry reachable via `ELU_REGISTRY` chain with fallback.

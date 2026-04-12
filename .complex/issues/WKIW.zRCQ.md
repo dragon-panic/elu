@@ -1,20 +1,36 @@
-## Layer unpacking and stacking
+# Layer unpacking and stacking
 
-Takes resolved packages from the store and produces a filesystem.
+Turn stored blobs back into a usable filesystem. A layer is a plain
+tar stream representing a file tree; a stack is an ordered list of
+layers applied into a staging directory with later-wins semantics,
+followed by an optional post-unpack hook.
 
-### Design
-- Each package tarball is a layer
-- Layers are applied in dependency order (bottom-up)
-- Later layers overwrite earlier ones (like Docker)
-- Hooks run in a chroot/namespace after the layer is unpacked
-- Intermediate results can be cached (hash of layer stack prefix)
+**Spec:** [`docs/prd/layers.md`](../docs/prd/layers.md)
 
-### Operations
-- `unpack(hash, target_dir)` — extract tarball into target
-- `stack(layers[], target_dir)` — apply layers in order
-- `run_hooks(target_dir, hooks)` — execute post_unpack scripts in chroot
+## Key decisions (from PRD)
 
-### Acceptance
-- Two layers with overlapping files: later wins
-- Hooks execute and can modify the unpacked filesystem
-- Layer application is idempotent (same inputs = same output)
+- Layer format is plain tar (no compression, no JSON descriptors,
+  not OCI). Hash is over the plain-tar bytes.
+- Whiteouts follow OCI convention: `.wh.<name>` deletes, `.wh..wh..opq`
+  makes a directory opaque. Consumed during stacking, never
+  materialized.
+- Stack order matters; later layer wins on path collision.
+- Unpack strategies: `copy`, `reflink` (default), `hardlink` (read-only
+  targets only). Store is never modified.
+- Staging directory is always on the host. Hook runs there, host-side,
+  with `cwd = staging`, `ELU_STAGING` set, stdin `/dev/null`, 60s
+  default timeout. Hook failure rolls back the stack.
+- `flatten(manifest)` walks dependencies depth-first and produces the
+  deduplicated layer hash list the stacker consumes.
+
+## Acceptance
+
+- `apply(layer, target)` handles files, dirs, symlinks, whiteouts,
+  opaque whiteouts.
+- `stack(manifest, target)` produces a merged tree matching manifest
+  layer order.
+- Reflink is used when the filesystem supports it; fallback to copy
+  otherwise.
+- Hook is run exactly once per stack, after all layers applied,
+  before output finalization.
+- Failed hook leaves the target untouched (staging dir removed).

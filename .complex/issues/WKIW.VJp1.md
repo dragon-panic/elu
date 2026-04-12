@@ -1,17 +1,31 @@
-## Content-addressed store
+# Content-addressed store
 
-The foundation. All packages are stored as blobs identified by sha256.
+The object database that underlies everything else. Holds manifests
+and layer blobs addressed by hash. Filesystem-backed, atomic writes,
+lock-free reads, exclusive-lock GC.
 
-### Design
-- Store location: `~/.local/share/elu/store/` (respect XDG_DATA_HOME)
-- Layout: `store/sha256/<first-2-chars>/<full-hash>.tar.zst`
-- Operations: put(tarball) → hash, get(hash) → tarball, exists(hash), gc()
-- Deduplication is automatic — same content = same hash = stored once
-- Metadata sidecar: `store/sha256/<hash>.meta.json` (name, version, source)
+**Spec:** [`docs/prd/store.md`](../docs/prd/store.md)
 
-### Acceptance
-- `elu store put <tarball>` stores and prints hash
-- `elu store get <hash>` retrieves to stdout or path
-- `elu store ls` lists all stored packages
-- `elu store gc` removes unreferenced blobs
-- Round-trip: put → get → identical bytes (verified by hash)
+## Key decisions (from PRD)
+
+- Addresses are `<algo>:<hex>`. v1 picks a single algorithm
+  (BLAKE3 or SHA-256) but the prefix is part of the canonical
+  identity so migration is possible later.
+- Layout: `objects/<algo>/<2-hex>/<rest>`, `refs/<ns>/<name>/<version>`
+  as one-line files, `tmp/` for staging.
+- Writes: stream to `tmp/`, hash on the fly, rename on commit.
+- Reads: direct path lookup, no verification on the hot path.
+- Refs are append-only; re-publishing a version is rejected.
+- GC is mark-and-sweep, manual (`elu gc`), takes exclusive lock.
+- No reverse index, no database, no encryption, no distribution.
+
+## Acceptance
+
+- `put(bytes) → hash` deduplicates when the object already exists.
+- `get(hash) → bytes | not_found` is lock-free.
+- `put_manifest` validates before storing.
+- Ref writes are atomic.
+- `gc()` reclaims every object not transitively reachable from any
+  ref.
+- `fsck()` re-hashes every object and reports mismatches.
+- Two concurrent writers of identical bytes converge safely.

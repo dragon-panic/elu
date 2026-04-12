@@ -1,19 +1,33 @@
-## Output formats (tar, dir, qcow2)
+# Output formats (dir, tar, qcow2)
 
-### tar (default)
-- Produce a single .tar.zst of the stacked filesystem
-- Portable, can be unpacked anywhere
+Materialize a resolved stack into a concrete artifact. Every output
+implements the same contract: take a finalized staging directory,
+produce a target, clean up.
 
-### dir
-- Write stacked filesystem to a target directory
-- Useful for inspection, testing, chroot
+**Spec:** [`docs/prd/outputs.md`](../docs/prd/outputs.md)
 
-### qcow2
-- Take a base qcow2 image, boot it, unpack layers inside, shut down, compact
-- Or: mount qcow2 via nbd, unpack directly, unmount
-- This is the seguro integration path
+## Key decisions (from PRD)
 
-### Acceptance
-- `elu build --output tar` produces a valid tarball
-- `elu build --output dir --target ./out` produces a directory
-- `elu build --output qcow2 --base base.qcow2` produces a new image
+- Contract: `materialize(staging_dir, target_path, options) → result`.
+  By the time an output is called, layers are applied and the hook
+  has run. Outputs never resolve, never stack, never mutate the
+  store.
+- `dir`: rename staging into place atomically (same-fs) or copy.
+  `--force` to replace an existing target.
+- `tar`: stream staging as tar, sorted paths for byte-reproducibility,
+  optional streaming compression (`gzip`, `zstd`, `xz`). Compression
+  is transport, not content.
+- `qcow2`: requires an `os-base` package declared via `--base`. Base
+  image's `metadata.os-base.finalize` runs inside the guest — the
+  only place elu executes guest-side code. Declared, not inferred.
+- Format inferred from target path suffix; `--format` always wins.
+- Extension set is closed in v1. No plugin boundary. Adding formats
+  is an elu code change.
+
+## Acceptance
+
+- Three formats work: `dir`, `tar`, `qcow2`.
+- `tar` output is byte-reproducible given the same resolution.
+- `qcow2` boots on QEMU given a valid `os-base` package.
+- `--format` and path inference agree on which format to use.
+- Partial outputs are never committed (failure = nothing at target).

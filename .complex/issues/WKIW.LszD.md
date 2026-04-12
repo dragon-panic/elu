@@ -1,40 +1,31 @@
-## Package manifest format
+# Package manifest format
 
-Defines what a package is. Two manifest types:
+The structured document that describes a package: namespace, name,
+version, kind, description, tags, ordered layer list, dependencies,
+optional post-unpack hook, free-form consumer metadata.
 
-### package.toml (single package)
-```toml
-[package]
-name = "claude-code"
-version = "2.1.71"
-hash = "sha256:abc123..."
+**Spec:** [`docs/prd/manifest.md`](../docs/prd/manifest.md)
 
-[source]
-type = "npm"                        # apt, npm, pip, url, local
-ref = "@anthropic-ai/claude-code"   # ecosystem-specific identifier
+## Key decisions (from PRD)
 
-[deps]
-nodejs = ">=18"
+- TOML on disk, equivalent JSON on the wire.
+- `schema = 1`. Unknown fields preserved but ignored by elu itself.
+- `kind` is opaque to elu — `native` is the default, everything else
+  is interpreted by consumers. See consumers.md.
+- `tags` are free-form discovery strings, never load-bearing.
+- `[hook]` is per-package (not per-layer), host-side, argv list, 60s
+  default timeout, runs in the staging directory with `ELU_STAGING`
+  set.
+- `[metadata]` is a free-form table elu preserves verbatim — this is
+  where consumer-specific fields (like `metadata.ox.requires`) live.
 
-[hooks]
-post_unpack = "./hooks/setup.sh"
-```
+## Acceptance
 
-### elu.toml (stack definition — what to build)
-```toml
-[stack]
-name = "claude-sandbox"
-
-[deps]
-ubuntu-base = "24.04"
-dev-tools = "1.0"
-claude-code = "2.1"
-
-[output]
-format = "tar"   # tar, dir, qcow2
-```
-
-### Acceptance
-- Parse both manifest types with serde
-- Validate required fields, version constraints
-- Lock file: elu.lock records resolved hashes for reproducibility
+- Parse and serialize manifests.
+- Validate: schema version, namespace/name charset, semver version,
+  non-empty kind, well-formed layer hashes, semver-or-hash dependency
+  constraints, non-empty hook command.
+- Reject manifests whose referenced layer blobs cannot be made
+  present in the store or fetch plan.
+- Canonical manifest bytes produce a stable hash (the package's
+  identity).

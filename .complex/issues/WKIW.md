@@ -1,20 +1,28 @@
-## Vision
+# elu — universal content-addressed layer engine
 
-Every package manager (apt, npm, pip, cargo, brew, pacman) does the same thing:
-content-addressed blobs, dependency resolution, layer unpacking, and shell hooks.
-elu unifies this into one tool. A package is a tarball + manifest + optional hooks,
-regardless of whether it came from Ubuntu's repos, npm, or PyPI.
+Store file trees as hashed layers, stack them into materialized outputs
+(dir, tar, qcow2), ship them through a lightweight registry. The
+substrate underneath any system that needs reproducible, composable,
+shareable bundles of files — agent skills, runtime images, system
+package sets, or anything else expressible as "these files, in this
+order, with this metadata."
 
-## Core model
+## Design docs
 
-- **Package**: manifest.toml + tarball + optional hooks (pre/post unpack scripts)
-- **Layer**: unpacked package on disk, identified by sha256 of its contents
-- **Stack**: ordered list of layers → produces a filesystem
-- **Store**: ~/.local/share/elu/store/ — content-addressed, deduplicated
-- **Importer**: wraps existing ecosystem packages (apt, npm, pip) as elu packages
+Full PRD lives in [`docs/prd/`](../docs/prd/). Start with
+[`docs/prd/README.md`](../docs/prd/README.md) for the mental model,
+ring structure, and component index.
 
-## Integration with seguro
+## Principles
 
-seguro's VM profiles define what goes in an image. elu builds the image layers.
-`elu build --output qcow2` replaces seguro's build-image.sh with something
-reproducible and cacheable.
+- Content addressing is the only identity that matters; tags are sugar.
+- `kind` is opaque to elu — consumers dispatch on it.
+- One post-unpack hook per package, host-side, against the staging dir.
+- Importers produce ordinary packages — no second format.
+- Registry is a lookup service, not a blob host.
+- No plugin system anywhere.
+
+## Children
+
+See child issues for individual components. Each child has a
+corresponding `docs/prd/<name>.md` that is authoritative.

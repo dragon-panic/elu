@@ -1,20 +1,37 @@
-## CLI (clap)
+# CLI (clap)
 
-### Commands
-```
-elu init                        # create elu.toml in current dir
-elu add <name> [--version X]    # add dep to elu.toml
-elu remove <name>               # remove dep
-elu lock                        # resolve deps → elu.lock
-elu build [--output tar|dir|qcow2]  # build stack from lock
-elu import <ecosystem> <pkg>    # apt|npm|pip → elu package
-elu store ls                    # list store contents
-elu store gc                    # garbage collect
-elu publish <pkg>               # push to registry
-elu info <name>                 # show package metadata
-```
+The `elu` command surface. Thin dispatch layer over the store,
+resolver, stacker, importers, outputs, and registry. No logic of its
+own — it translates arguments into component calls.
 
-### Acceptance
-- All commands wired up with clap derive
-- Helpful error messages for missing manifests, unknown packages
-- `--json` flag on list/info commands
+**Spec:** [`docs/prd/cli.md`](../docs/prd/cli.md)
+
+## Key decisions (from PRD)
+
+- Shape: `elu <verb> <object>`. Verbs map to ring-model operations.
+- Global flags: `--store`, `--registry`, `--offline`, `--locked`,
+  `--json`, `-v`/`-vv`, `-q`.
+- Verbs:
+  - Project: `install`, `add`, `remove`, `lock`, `update`
+  - Stacking: `stack -o <path> [--format ...]`
+  - Authoring: `build`, `publish`
+  - Importers: `import apt|npm|pip [--closure]`
+  - Discovery: `search`, `inspect`, `ls`
+  - Maintenance: `gc`, `fsck`, `refs`, `config`, `completion`
+- Project files: `manifest.toml` + `elu.lock` + optional `layers/`.
+  Consumer vs authored project detected from manifest shape
+  (presence of `[[layer]]`).
+- Exit codes: 0 ok, 2 usage, 3 resolution, 4 network, 5 store,
+  6 hook, 7 lockfile drift.
+- `--json` streams newline-delimited events for long ops, single
+  object for queries. Errors and progress to stderr; `--json` to
+  stdout.
+- No daemon, no TUI, no language wrappers in v1.
+
+## Acceptance
+
+- All verbs present with documented flags.
+- `--json` output is stable and documented.
+- Exit codes match the table.
+- Shell completions for bash, zsh, fish.
+- Pipes cleanly: `elu --json install | jq` works without tweaks.
