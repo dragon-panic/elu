@@ -1,0 +1,16 @@
+{
+  "id": "WKIW.lMYk",
+  "title": "Output formats (tar, dir, qcow2)",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-03-08T16:19:08.677584732Z",
+  "updated_at": "2026-03-08T16:19:08.677584732Z",
+  "parent": "WKIW",
+  "edges": [
+    {
+      "to": "WKIW.QV3o",
+      "type": "blocks"
+    }
+  ]
+}
