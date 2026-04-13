@@ -197,6 +197,7 @@ Candidates for future outputs:
 
 | Format | Notes |
 |--------|-------|
+| `overlay` | Extract each layer to its own directory and expose the stack as a kernel overlayfs mount (stacked lowerdirs, optional writable upperdir). The zero-copy-shared path for consumers that want many concurrent read-only views of the same content. Replaces the reflink/hardlink unpack strategies we explicitly rejected in [layers.md](layers.md). |
 | `oci` | Produce an OCI image layout. Enables push to container registries. |
 | `squashfs` | Produce a read-only squashfs image. Useful for initrd-style uses. |
 | `raw` | Raw disk image. Simpler than qcow2, harder to ship. |

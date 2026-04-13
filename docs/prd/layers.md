@@ -28,18 +28,33 @@ Inside the tar:
   them but does not require them).
 - Whiteouts (see below).
 
+### Identity and compression
+
+The **hash of a layer is the hash of its uncompressed tar bytes.**
+This is the only identity that matters: it is what the manifest
+records, what the resolver pins, what the signature covers.
+
+The blob as **stored on disk** and as **served from the registry**
+may be compressed — v1 supports `none`, `gzip`, and `zstd`. The
+compression algorithm is declared per-layer in the manifest (see
+[manifest.md](manifest.md#layer)) and is a transport/storage hint,
+not part of the identity. Two publishers that ship the same logical
+layer with different compressions produce the same layer hash but
+different on-disk bytes. Deduplication at the store layer is by
+hash, so only one encoding is kept; see [store.md](store.md) for the
+first-writer-wins rule.
+
+The rationale for a single hash (rather than the OCI diff_id plus
+blob-digest split): we get the same "encoding can evolve without
+changing identity" property with half the bookkeeping. The thing
+we lose is deduplication across multiple simultaneous compressed
+encodings of the same tar in a single store — a narrow case we are
+content to re-fetch when it happens.
+
 What a layer blob is **not**:
 
-- Not compressed internally. The blob stored in the CAS is plain tar.
-  Compression is an I/O concern handled at transfer time by the
-  registry transport, not a property of the content. Storing plain
-  tar means identical content always produces identical hashes
-  regardless of what compressor was available when the layer was
-  built.
 - Not encrypted.
 - Not signed. Hash identity is the integrity story.
-
-The hash of a layer is the hash of its plain-tar bytes.
 
 ### Whiteouts
 
@@ -58,8 +73,11 @@ elu layers look very similar to OCI image layers because the
 underlying problem is the same. They are not OCI layers:
 
 - No media types, no JSON descriptors, no manifest lists.
-- No tar+gzip requirement; the stored form is plain tar.
+- A single hash per layer (over the uncompressed tar), not OCI's
+  diff_id plus blob digest pair.
 - No config blob separate from the manifest.
+- Whiteout convention (`.wh.foo`, `.wh..wh..opq`) is borrowed
+  verbatim, so an elu → OCI bridge can rewrap layers mechanically.
 
 Interop with OCI is a bridging concern. An OCI importer (future work)
 could rewrap OCI layers as elu layers; the reverse would produce OCI
@@ -75,9 +93,10 @@ and produces a merged file tree.
 ```
 stack(layers, target):
     ensure target exists and is empty (or enforce --force)
-    for each layer_hash in layers:         # in manifest order
-        layer_blob = store.get(layer_hash)
-        for entry in tar_entries(layer_blob):
+    for each layer_hash in layers:                    # in manifest order
+        raw = store.open(layer_hash)                  # file handle
+        tar = decompress_stream(raw, layer.compression)
+        for entry in tar_entries(tar):
             apply entry into target
 ```
 
@@ -101,36 +120,47 @@ specification.
 
 ---
 
-## Unpack Strategies
+## Unpack Mechanics
 
-Stacking needs to move file contents from the store into the target.
-The naive implementation reads the tar stream and writes new files.
-elu supports three faster strategies when the filesystem allows:
+Stacking is straightforward: open each layer blob from the store,
+decompress it according to the layer's declared compression, walk the
+tar entries, and write them into the staging directory. Later layers
+overwrite earlier ones on path collision; whiteouts delete.
 
-| Strategy | Requires | Effect |
-|----------|----------|--------|
-| `copy` | always works | Read from store, write fresh bytes in target. |
-| `reflink` | btrfs, xfs, apfs | Copy-on-write clone; zero data copy. |
-| `hardlink` | same filesystem, target is read-only | Target entries are hardlinks into the store. No data copy; target cannot be modified. |
+The store is never modified by a stack operation. The store is a
+read source; the staging directory is the only thing written.
 
-The strategy is chosen per-stack based on a policy:
+**No reflink, no hardlink strategy.** An earlier draft of this
+document described `copy`, `reflink`, and `hardlink` unpack modes.
+None of them survive contact with the real use cases:
 
-```
---unpack=copy            # always copy
---unpack=reflink         # reflink if supported, else copy (default)
---unpack=hardlink        # hardlink, refuse if target will be mutated
-```
+- Reflink/hardlink require the store to hold individual files, not
+  tar blobs. Our store holds (compressed) tar blobs, so the
+  per-file link operations do not apply — they would require a
+  second "extracted cache" tier whose maintenance cost is larger
+  than the copy it saves.
+- Our actual workloads — qcow2 image builds, live skill injection,
+  dev iteration — are not reflink-bound. Copy from tar is fast
+  enough on SSD.
+- Consumers that genuinely need zero-copy sharing across many
+  concurrent stacks are better served by a union mount, which is an
+  output concern (see **Future: overlay output** below), not a
+  stacker concern.
 
-Hardlink mode is attractive for read-only consumers (a runner pool
-materializing skill stacks that will never be written back to). It is
-not the default because a consumer that mutates the target would
-corrupt the store.
+Plain copy from a decompression stream is the only unpack path. No
+flags, no strategy selection, no per-filesystem capability probing.
 
-Reflink mode is the default because it gives copy semantics at
-hardlink cost on modern filesystems and degrades gracefully elsewhere.
+### Future: overlay output
 
-The store is never modified by a stack operation. The store is a read
-source; the target is the only thing written.
+If a consumer ever needs "many read-only stacks sharing filesystem
+pages" — the classic containerd snapshotter pattern — the right
+answer is an `overlay` output format (see [outputs.md](outputs.md))
+that extracts each layer to its own directory and exposes the stack
+as a kernel overlayfs mount with the layers as stacked lowerdirs.
+This would be additive to `dir`, `tar`, and `qcow2`, not a change to
+the stacker itself. It is explicitly out of scope for v1; we are
+listing it so nobody re-introduces reflink/hardlink in search of the
+same property.
 
 ---
 
@@ -236,15 +266,13 @@ the qcow2 output owns that concern. See [outputs.md](outputs.md).
 
 ```
 # Stack a manifest into a target directory
-layers.stack(manifest, target, *, unpack_strategy="reflink", hooks=True)
-    -> stats
+layers.stack(manifest, target, *, hooks=True) -> stats
 
 # Apply a single layer (lower level, used by stack)
-layers.apply(layer_hash, target, *, unpack_strategy="reflink")
-    -> stats
+layers.apply(layer_hash, compression, target) -> stats
 
 # Compute the ordered layer list from a manifest + its resolved deps
-layers.flatten(manifest, *, resolver) -> list of layer_hash
+layers.flatten(manifest, *, resolver) -> list of (layer_hash, compression)
 ```
 
 `flatten` walks dependencies depth-first and emits each dep's layers
@@ -257,10 +285,13 @@ pinned manifest graph that `flatten` walks.
 
 ## Non-Goals
 
-**No overlayfs mounting.** elu materializes layers into real
-directories. It does not create overlay mounts. Consumers that want
-overlay semantics at runtime (e.g. a container runtime) can use
-`unpack=hardlink` to avoid copying and do their own mount on top.
+**No overlayfs mounting in the stacker.** The core stacker produces
+real directories, not mounts. An `overlay` output format may provide
+union-mount semantics in the future (see above), but it is an output,
+not a property of stacking.
+
+**No reflink or hardlink unpack modes.** See "Unpack Mechanics"
+above. Plain copy from decompression streams is the one unpack path.
 
 **No file-level deduplication within a layer.** Dedup happens at the
 layer hash level. Two layers that share most of their files are two
@@ -271,3 +302,8 @@ maximum storage efficiency.
 changes since layer X" is expressible at the producer layer (by
 authoring a layer that only contains the delta and whiteouts) and
 does not need engine support.
+
+**No multi-compression storage.** The store keeps exactly one
+encoding per layer hash (first writer wins). A consumer that happens
+to fetch the same hash compressed differently later pays a small
+re-fetch cost but never stores both. See [store.md](store.md).

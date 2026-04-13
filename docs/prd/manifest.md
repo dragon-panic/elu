@@ -109,12 +109,27 @@ behavior needs to be triggered by metadata, that is what `kind` is for.
 An ordered list. Layer order is significant: layers are applied in the
 order they appear in the manifest, earlier first. Each entry:
 
-**`hash`** — required. Content hash of the layer blob, including the
-algorithm prefix (e.g. `b3:...`). The blob must be present in the store
-or fetchable from the registry before the package can be stacked.
+**`hash`** — required. Content hash of the layer, including the
+algorithm prefix (e.g. `b3:...`). The hash is always taken over the
+**uncompressed tar bytes**, regardless of what encoding the blob is
+stored or transferred in. Two layers with identical uncompressed
+content have the same hash even if one was gzipped and one was
+zstd-compressed on disk. The blob must be present in the store or
+fetchable from the registry before the package can be stacked.
 
-**`size`** — required. Byte size of the blob. Used for progress
-reporting and sanity checks. Not the source of truth — the hash is.
+**`compression`** — optional. One of `none`, `gzip`, `zstd`. Defaults
+to `zstd`. Declares the encoding the blob uses when stored in the CAS
+and served from the registry. Since `hash` is over the uncompressed
+tar, `compression` is a transport and storage hint, not an identity
+field. Two publishers that compress the same logical layer with
+different algorithms produce the same `hash` but different on-disk
+bytes; a store keyed only by hash will hold whichever form arrived
+first (see [store.md](store.md)).
+
+**`size`** — required. Byte size of the **uncompressed tar**, matching
+the bytes the hash covers. Used for progress reporting and sanity
+checks. Not the source of truth — the hash is. The compressed-on-wire
+size is a transport detail and is not carried in the manifest.
 
 **`name`** — optional. A short label shown in diagnostics. Has no
 effect on unpacking.

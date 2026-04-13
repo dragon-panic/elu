@@ -30,9 +30,17 @@ Two invariants:
 
 1. **Content determines hash.** Identical bytes have identical
    hashes. Consumers rely on this for deduplication.
-2. **Hash determines object.** A hash resolves to at most one byte
-   sequence. Collisions are treated as bugs in the algorithm, not as
-   possible outcomes.
+2. **Hash determines object.** A hash resolves to at most one logical
+   byte sequence. Collisions are treated as bugs in the algorithm, not
+   as possible outcomes.
+
+For layer blobs, "content" means the **uncompressed tar bytes**. The
+on-disk form may be compressed (zstd, gzip) and still satisfy invariant
+1 — two stores holding the same layer may have different files on disk
+if they arrived via different compressions, but both answer to the same
+hash and decompress to the same tar. See `put_blob` below. Manifests
+are always stored uncompressed; the distinction is only meaningful for
+layer blobs.
 
 ---
 
@@ -88,11 +96,11 @@ writers that are about to publish a new root.
 
 ## Writing Objects
 
-Writing an object is always three steps: stream to `tmp/`, hash
-on-the-fly, rename into place.
+Writing a manifest is straightforward — hash the bytes, rename into
+place:
 
 ```
-put(bytes) -> hash:
+put_manifest(bytes) -> hash:
     staging = tmp/<random>
     h = hasher()
     while chunk in bytes:
@@ -108,13 +116,59 @@ put(bytes) -> hash:
     return hash
 ```
 
+Writing a layer blob is slightly different because the hash is over
+the *uncompressed* tar, not the bytes as received. The writer
+decompresses through a hasher while writing the raw received bytes
+to disk:
+
+```
+put_blob(bytes, compression) -> hash:
+    staging = tmp/<random>
+    h = hasher()
+    decompressor = decompress_stream(compression)   # identity for "none"
+    while chunk in bytes:
+        write staging <- chunk                       # store what we got
+        for plain in decompressor.feed(chunk):
+            h.update(plain)                          # hash the uncompressed
+    for plain in decompressor.finish():
+        h.update(plain)
+    close staging
+    hash = h.finalize()
+    dst = objects/<prefix>/<rest>
+    if exists(dst):
+        remove staging              # already have it, some encoding
+    else:
+        rename staging -> dst
+        record_compression(hash, compression)
+    return hash
+```
+
+The on-disk form is whatever was received. A small sidecar — an
+entry in `objects/<prefix>/<rest>.meta` or a central
+`objects/compression.db` — records which compression each blob was
+stored with so the reader knows how to decode it. Magic-byte sniffing
+at read time is an acceptable alternative (tar: offset 257 ustar
+magic; gzip: `1f 8b`; zstd: `28 b5 2f fd`) and avoids the sidecar
+entirely; v1 picks whichever is simpler to implement.
+
 The rename is the commit point. A crashed writer leaves an orphan in
 `tmp/` which GC cleans on next run. A reader that sees an object in
-`objects/` is guaranteed it is complete and its bytes hash correctly.
+`objects/` is guaranteed it is complete and its uncompressed bytes
+hash correctly.
 
 elu never verifies the hash of an object it is about to read. The
 invariant is maintained on write; read-time verification is the job
 of `elu fsck`, not the hot path.
+
+**First-writer-wins for compression.** If two publishers ship the
+same logical layer (same uncompressed hash) with different
+compressions, the store keeps whichever arrived first. Re-fetches of
+the same hash from a source using a different compression are
+skipped (the blob is already present) and the second compressed form
+is discarded. The cost: more bytes transferred across the network in
+that one edge case. The benefit: a single-hash store with no
+(hash, compression) compound keys. See the discussion in
+[manifest.md](manifest.md#layer).
 
 ---
 
@@ -130,10 +184,10 @@ get(hash) -> bytes | not_found:
     return read(path)
 ```
 
-Consumers that stream a layer out during unpacking read directly from
-the object path. This is how the layer stacker stays zero-copy on
-filesystems that support reflink — the stacker asks the store for the
-path, not the bytes.
+Consumers that stream a layer out during unpacking open the object
+file directly and pipe it through the appropriate decompressor. The
+store provides the raw file; decompression happens at the consumer
+boundary. See [layers.md](layers.md) on the unpack flow.
 
 ---
 
