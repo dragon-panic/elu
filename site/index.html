@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>elu — a package manager that trusts no one, including you</title>
+  <meta name="description" content="elu is a package manager with a closed set of install-time operations and an honest escape hatch. No shell. No postinstall hooks. No silent trust carry-over on upgrade.">
+  <meta property="og:title" content="elu">
+  <meta property="og:description" content="a package manager that trusts no one, including you">
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav id="nav">
+    <a href="#top">elu</a>
+    <a href="#how">how</a>
+    <a href="#not">what it's not</a>
+    <a href="#spec">spec</a>
+    <a href="https://github.com/dragon-panic/elu">github</a>
+  </nav>
+
+  <header id="top">
+    <h1>elu</h1>
+    <p class="tagline">
+      a package manager that<br>
+      <span id="rotator">trusts no one, including you</span>.
+    </p>
+    <div class="cta">
+      <a href="https://github.com/dragon-panic/elu" class="primary">github</a>
+      <a href="#spec">read the spec</a>
+      <a href="#how">how it works</a>
+    </div>
+  </header>
+
+  <main>
+    <section id="pitch">
+      <p>Every package manager you've used ships with arbitrary shell at install time. <code>postinstall</code> hooks, <code>postinst</code> scripts, <code>build.rs</code>, <code>setup.py</code>. That's where the supply chain attacks come from. It has been where they come from for twenty years. It was never a mystery.</p>
+      <p>elu doesn't. The operations a package can perform at install time are a closed set that elu itself implements. Anything outside that set is named <code>run</code>, marked dangerous, and consented to separately. Your package manager finally has a permission model. You're welcome.</p>
+    </section>
+
+    <section id="tiers">
+      <h2>two tiers. one of them is a red flag.</h2>
+      <div class="tiers">
+        <div class="tier native">
+          <h3>native ops</h3>
+          <p class="sub">enforced by being elu's own code</p>
+          <ul class="ops">
+            <li><code>chmod</code></li>
+            <li><code>mkdir</code></li>
+            <li><code>symlink</code></li>
+            <li><code>write</code></li>
+            <li><code>template</code></li>
+            <li><code>copy</code></li>
+            <li><code>move</code></li>
+            <li><code>delete</code></li>
+            <li><code>index</code></li>
+            <li><code>patch</code></li>
+          </ul>
+          <p>Each op is a function in elu's source. The <code>write</code> op's entire behavior is "write these bytes to this path." There is no code path inside it that reads <code>~/.ssh</code>. It cannot. On every platform. With zero kernel help. The publisher supplies arguments; elu supplies behavior.</p>
+        </div>
+        <div class="tier run">
+          <h3><code>run</code></h3>
+          <p class="sub">the escape hatch</p>
+          <p>When a manifest uses <code>run</code>, elu is <code>execve</code>-ing a binary the package supplied. The declared <code>reads</code>/<code>writes</code>/<code>network</code> are <strong>disclosure</strong>, not guarantees. elu makes no promises about what the binary actually does.</p>
+          <p>Every UI surface marks <code>run</code> visibly. The goal is that you almost never see it. When you do, you should look.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <h2>how it works</h2>
+      <ul class="how">
+        <li>
+          <strong>closed op set, enforced by implementation.</strong>
+          Ten declarative ops, each a function in elu's source. No shell. No plugins. Adding a new op is an elu-side code change, reviewed and shipped like any other feature. A publisher cannot smuggle in a new capability by shipping a clever manifest.
+          <a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/hooks.md">→ hooks.md</a>
+        </li>
+        <li>
+          <strong>content-addressed layers, OCI-compatible.</strong>
+          Every layer has a <code>diff_id</code> and a <code>blob_id</code>. Byte-for-byte compatible with OCI image layers. You already know how to host them, mirror them, and garbage-collect them.
+          <a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/layers.md">→ layers.md</a>
+        </li>
+        <li>
+          <strong>manifest-hash approvals with diff UX.</strong>
+          Approvals are keyed on the manifest hash, not on <code>name@version</code>. An upgrade that adds a new <code>run</code> op, flips <code>network</code> to true, or widens <code>writes</code> re-prompts with a diff. The <code>foo@1.0.0</code>-is-fine-but-<code>foo@1.0.1</code>-eats-your-SSH-keys attack pattern stops working.
+          <a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/hooks.md">→ hooks.md</a>
+        </li>
+        <li>
+          <strong>importers for apt, npm, pip.</strong>
+          Your existing ecosystem, rewrapped as elu packages. <code>postinst</code> scripts do not come along for the ride. If a script maps to native ops, it's mapped. If it doesn't, it becomes a <code>run</code> and you see it in the approval diff. No silent execution, ever.
+          <a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/importers.md">→ importers.md</a>
+        </li>
+      </ul>
+    </section>
+
+    <section id="not">
+      <h2>what elu is not</h2>
+      <p>elu is not a sandbox. Not a container. Not a VM. Not a chroot. Not a jail. Not a build system. Not a language runtime. Not a CI system. Not going to run your tests. Not going to rebuild your world from source. Not going to solve your semver constraints with a SAT solver. Not going to write your <code>elu.toml</code> for you. (Your coding agent will.)</p>
+      <p>elu is a package manager. That's the whole thing. If you need a sandbox, run elu inside one. If you need a build system, run your build system and hand the output to elu. If you need build-level reproducibility, that's Nix's job and Nix is good at it. elu's job starts after the bytes exist and ends when they land on disk, in the right place, with the right permissions, with consent on file.</p>
+      <p>It is boring on purpose. That is the pitch.</p>
+    </section>
+
+    <section id="spec">
+      <h2>the spec</h2>
+      <p>The PRDs are the whole design. There is no binary yet; there will be. Read them in any order.</p>
+      <ul class="spec">
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/README.md">README</a> — the tour</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/manifest.md">manifest</a> — the package descriptor</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/layers.md">layers</a> — content-addressed filesystem bundles</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/hooks.md">hooks</a> — the capability model (this is the one)</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/store.md">store</a> — the content-addressed database</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/resolver.md">resolver</a> — dependency resolution</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/registry.md">registry</a> — the lookup service</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/cli.md">cli</a> — the command surface</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/consumers.md">consumers</a> — who uses elu and how</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/outputs.md">outputs</a> — dir, tar, qcow2</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/importers.md">importers</a> — apt, npm, pip</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/authoring.md">authoring</a> — how humans and agents make packages</li>
+        <li><a href="https://github.com/dragon-panic/elu/blob/main/docs/prd/seguro.md">seguro</a> — the VM sandbox integration</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>elu is <a href="https://github.com/dragon-panic/elu">on github</a>. this is a spec, not a binary. yet.</p>
+    <p class="fine">not for everyone. especially not for people who like postinstall scripts.</p>
+  </footer>
+
+  <script>
+    const taglines = [
+      "trusts no one, including you",
+      "has read the npm postmortems and taken notes",
+      "treats <code>curl | sh</code> as a personality defect",
+      "thinks your postinstall script is a red flag",
+      "assumes every maintainer's token has already leaked",
+      "takes supply chain attacks personally",
+      "is what happens when a package manager reads its own CVEs",
+      "figured if Claude Code has to ask, npm should have asked"
+    ];
+    const el = document.getElementById("rotator");
+    let i = 0;
+    setInterval(() => {
+      i = (i + 1) % taglines.length;
+      el.style.opacity = "0";
+      setTimeout(() => {
+        el.innerHTML = taglines[i];
+        el.style.opacity = "1";
+      }, 200);
+    }, 3600);
+
+    const nav = document.getElementById("nav");
+    const hero = document.getElementById("top");
+    const onScroll = () => {
+      nav.classList.toggle("visible", window.scrollY > hero.offsetHeight - 80);
+    };
+    addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+  </script>
+</body>
+</html>
