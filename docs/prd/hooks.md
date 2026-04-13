@@ -14,23 +14,55 @@ predictably, that install hooks are the primary supply chain attack
 vector across apt, npm, pip, cargo, gem, and every other ecosystem
 that followed the same pattern.
 
-elu takes a different position: **hooks are a closed set of
-declarative filesystem operations, not arbitrary code execution.**
-The operations are implemented in elu's own code, so there is no
-shell, no subprocess, no network, no way for a publisher to smuggle
-in arbitrary behavior through the normal path. A single `run` op
-exists as an explicit escape hatch for the small number of packages
-that genuinely need to invoke an external binary, and `run` is
-governed by a permission model patterned on Claude Code's tool
-approval system: capabilities must be declared up front, consumers
-grant them per manifest hash, and upgrades that change what a
-package can do force re-approval.
+elu takes a different position: **the operations a package can
+perform at install time are a closed set that elu itself
+implements, and anything outside that set is named `run`, marked
+dangerous, and consented to separately.** There is no shell, no
+plugin boundary, no way for a publisher to introduce a new
+operation by shipping a clever manifest. The publisher supplies
+*arguments*; elu supplies *behavior*.
 
-The design goal is that the common case — a chmod, a symlink, a
-generated index — should be impossible to weaponize. No clever
-policy, no sandbox, no signature check: just *the operation does
-not exist in the op set*. The dangerous case is available, visible,
-and auditable.
+This distinction is load-bearing and worth stating plainly:
+
+- **Native ops** (`chmod`, `mkdir`, `symlink`, `write`, `template`,
+  `copy`, `move`, `delete`, `index`, `patch`, and whatever else
+  elu grows over time) are functions in elu's own code. The
+  `write` op's entire behavior is "write these bytes to this
+  path." There is no code path inside `write` that reads
+  `~/.ssh` or opens a socket, so it cannot. This is real
+  enforcement, on every platform, with zero kernel help, because
+  the enforcement mechanism is simply that *elu did not write a
+  function that does anything else*. A native op is as
+  trustworthy as elu itself.
+- **`run`** is the escape hatch. When a manifest uses `run`, elu
+  is `execve`-ing a binary the package supplied. The declared
+  `reads`/`writes`/`network` are **disclosure**, not guarantees.
+  elu makes no promises about what the binary actually does. Every
+  consent prompt, every approval diff, every `elu audit` listing
+  marks `run` ops visibly — they are qualitatively different from
+  native ops and the user should know.
+
+**The product goal is to grow the native op set until `run` is
+rare.** Every time a publisher reaches for `run` to do something
+mundane — `systemctl daemon-reload`, `update-alternatives`,
+`fc-cache` — that is a signal that the native set is missing an op,
+and the right fix is usually *add a native op for that*, not *make
+`run` nicer*. The importer story is the scoreboard: every apt
+`postinst` script a future importer can map to native ops is a win;
+every one that has to be rewrapped as `run` is a loss, documented.
+If 80%+ of real packages never touch `run`, then the supply chain
+is 80%+ made of operations whose behavior is elu's own code —
+which is a trust property no other package manager comes close to.
+
+elu is **not a sandbox.** It is a package manager. It can run
+inside a sandbox (seguro, a container, a CI runner with its own
+limits), and the declared capabilities on `run` ops can optionally
+be handed to a kernel-level mechanism like landlock where one is
+available — but elu itself does not contain, jail, or confine
+anything. Its security value comes from two things: (1) native ops
+are enforced by virtue of being elu's own code, and (2) `run` is
+disclosed up front, keyed to consent, and re-prompts on any change.
+Anything beyond that is the consumer's layer.
 
 ---
 
@@ -334,27 +366,31 @@ command is allowed to have. They are **always rooted in the
 staging directory** — no absolute paths, no `..`, no access to
 anywhere else on the host.
 
-In **tier 0** (see [Enforcement Tiers](#enforcement-tiers) below),
-these declarations are recorded and inspected by policy, but not
-enforced. An honest publisher's command reads and writes only what
-they declared; a malicious publisher can do more. Inspection and
-audit tools will warn when declarations look suspicious (a command
-that reads `**` and writes `**` is effectively unconstrained).
+By **default** (see [Optional Kernel Confinement for `run`
+](#optional-kernel-confinement-for-run) below), these declarations
+are recorded, hashed into the manifest, surfaced in approval
+prompts, and inspected by policy — but not enforced at the kernel
+level. An honest publisher's command reads and writes only what
+they declared; a determined malicious publisher can lie. Inspection
+and audit tools warn when declarations look suspicious (a command
+that reads `**` and writes `**` is effectively unconstrained), and
+the lie is auditable after the fact.
 
-In **tier 1** on Linux, `reads`/`writes` are enforced via landlock
-— the process is confined to the declared globs at the kernel
-level, and attempts to read or write outside them fail with
-`EACCES`.
-
-In **tiers 2/3** on macOS and Windows, analogous sandbox profiles
-enforce the declarations.
+When the consumer **opts in to landlock on Linux**, `reads`/`writes`
+are enforced at the kernel level: the process is confined to the
+declared globs and attempts to read or write outside them fail with
+`EACCES`. Equivalent opt-in mechanisms on macOS and Windows are
+future work.
 
 ### `network`
 
 A bool. If `false` (the default behavior for any hook that doesn't
 think carefully), the command is declared to make no network calls.
-In tier 0, this is honor-system. In tier 1+, the command runs in a
-network namespace with no routes, so network calls fail outright.
+By default this is disclosure, not enforcement: an honest command
+honors it, a lying command may try anyway, and `elu audit` can flag
+the discrepancy after the fact. With opt-in landlock on Linux, the
+command runs in a network namespace with no routes, so network
+calls fail outright.
 
 Any package declaring `network = true` is surfaced prominently by
 `elu inspect` and `elu audit` — it is the single most load-bearing
@@ -611,14 +647,25 @@ no to their hooks.
 
 ---
 
-## The Semver-Range Escape Hatch
+## Shape-Based Consent: The Claude Code Bash Model
 
 Manifest-hash pinning is strict. For a working developer that
 upgrades dependencies frequently, re-approving every patch release
-manually is friction. For power users who trust a particular
-publisher within a particular version range, there is an opt-in
-policy form that auto-approves upgrades **as long as their
-capability profile fits inside a declared envelope**:
+manually is friction — *for the cases where the upgrade actually
+changed something dangerous*. For inert packages (no hooks at all)
+and for packages whose native ops are byte-identical across
+versions, the manifest-hash rule is already free: the hooks
+section hashes to the same value, so prior consent still applies
+and there is no prompt. The friction lives entirely in the `run`
+case, which is precisely where strictness is most load-bearing.
+
+The escape valve is borrowed directly from Claude Code's bash
+permission model: a user can opt in, in their own policy file, to
+**shape-based consent** for `run` ops from a specific publisher
+within a specific version range and a specific capability envelope.
+A new version's `run` ops auto-approve if and only if every field
+matches the declared shape; anything outside the shape still
+prompts.
 
 ```toml
 # ~/.config/elu/policy.toml
@@ -628,94 +675,142 @@ publisher     = "ox-community"
 name          = "postgres-query"
 version_range = "^1.0"
 
-# Capability envelope. Any upgrade that declares capabilities
-# within this envelope is auto-approved. An upgrade that exceeds
-# it still prompts.
-run           = ["ldconfig", "update-*"]
+# Shape envelope. An upgrade auto-approves if its run ops fit
+# inside this shape. An upgrade that exceeds it still prompts.
+run           = ["ldconfig", "update-*"]   # argv-glob patterns
 reads         = ["lib/**", "etc/**"]
 writes        = ["lib/**"]
 network       = false
 ```
 
-With this rule in the user's policy, a `1.0.0 → 1.0.1` upgrade is
-automatic **if and only if** the new version's declared
-capabilities are a subset of the envelope. A new version that adds
-a `run(curl *)` op, or flips `network` to true, or widens `writes`
-to `**`, still prompts because it exceeds the envelope.
+The argv-glob patterns work the same way Claude Code's `Bash(git
+log:*)` patterns do: each `run` op's argv is joined with single
+spaces and matched against the patterns in the rule. `run =
+["ldconfig", "update-*"]` matches `["ldconfig"]` and `["update-ca-
+certificates", "--fresh"]`, but does **not** match `["curl",
+"https://evil"]`. A version that introduces a new `run(curl *)`
+op falls outside the envelope and prompts. A version that flips
+`network` to true falls outside the envelope and prompts. A
+version that widens `writes` to `**` falls outside the envelope
+and prompts.
 
-This earns back the ergonomics of "I just trust ox-community's 1.x
-releases within this capability range" without opening the door to
-"I just trust ox-community's 1.x releases to do whatever." The
+This earns back the ergonomics of "I just trust ox-community's
+1.x releases for this set of operations" without opening the door
+to "I just trust ox-community's 1.x releases to do whatever." The
 envelope is declared explicitly by the user, in the user's own
-config, and cannot be loosened by the publisher.
+config, and the publisher cannot loosen it. The version number is
+not a trust input; the *shape* is.
 
-Semver-range auto-approval is **never the default.** It requires
-the user to type the rule into their policy file. A fresh install
-on a new machine uses `ask` mode with strict manifest-hash keying.
+**`run` stays marked dangerous in every UI surface, regardless of
+how smooth the consent flow is.** Shape-based consent is an
+ergonomic affordance for power users who have already decided the
+risk is acceptable. It does not promote `run` ops to the same trust
+class as native ops, and `elu inspect`, `elu audit`, and the
+approval prompts continue to flag `run` visibly. Ergonomics does
+not launder risk.
+
+Shape-based consent is **never the default.** It requires the user
+to type the rule into their policy file. A fresh install on a new
+machine uses `ask` mode with strict manifest-hash keying, and the
+strict mode is the right place to live for almost everyone almost
+all the time — because if the native op set is doing its job, the
+strict mode has nothing to ask about for the overwhelming majority
+of packages.
 
 ---
 
-## Enforcement Tiers
+## Optional Kernel Confinement for `run`
 
-Declared capabilities are useful even without enforcement, because
-they drive the inspection and approval UX. Enforcement turns them
-into guarantees. elu ships declarative-only in v1 and adds
-enforcement platform by platform.
+Native ops do not need this section. They are enforced by virtue
+of being elu's own code on every platform — `write` only writes,
+`chmod` only chmods, `symlink` only symlinks, all bounded to the
+staging directory by the op argument types themselves. There is no
+kernel mechanism involved and none needed. A native op is as
+trustworthy as elu itself, and that trust property holds equally
+on Linux, macOS, Windows, BSD, or anywhere else elu compiles.
 
-| Tier | Mechanism | Platform | v1 status |
-|------|-----------|----------|-----------|
-| 0 | Declarations recorded; policy decides whether to honor | all | **v1** |
-| 1 | Landlock (filesystem) + user namespace (network) | Linux ≥5.13 | v1.x, opt-in |
-| 2 | `sandbox-exec` profiles | macOS | future |
-| 3 | AppContainer + Job Objects | Windows | future |
+This section is about `run`, and only `run`. When a manifest uses
+`run`, elu is invoking a binary it does not control, and the
+declared `reads`/`writes`/`network` are disclosure rather than
+guarantees. For consumers who want those declarations to also be
+*enforced*, elu can optionally hand them to a kernel-level
+confinement mechanism on platforms that provide one. This is opt-in,
+platform-specific, and explicitly **not** elu pretending to be a
+sandbox. elu is a package manager. If you need a sandbox, run elu
+inside seguro, a container, or whatever isolation your environment
+provides; elu's confinement support is a convenience for the cases
+where the OS makes it cheap to wire up.
 
-### Tier 0 (declared)
+| Mechanism | Platform | Status |
+|-----------|----------|--------|
+| None — declarations are disclosure only | all | **v1 default** |
+| Landlock (filesystem) + user namespace (network) | Linux ≥5.13 | v1.x, opt-in |
+| `sandbox-exec` profiles | macOS | future |
+| AppContainer + Job Objects | Windows | future |
 
-Declarations are recorded in the manifest, presented to the user
-during approval, used to constrain what `run` *is allowed to
-claim*, and checked by policy before dispatch. But the command
-process itself is not sandboxed — it runs with whatever privileges
-the elu process has.
+### Default: declared, not confined
 
-The value of tier 0 is auditability: a package that declares
-`network = false` and then tries to make network calls at runtime
-may or may not succeed depending on the environment, but the
-*declaration* is committed to the manifest hash, signed by the
-publisher (if they signed), and visible to anyone who inspects the
-package. `elu audit` can detect discrepancies after the fact by
-observing what commands actually did and comparing to what they
-said.
+By default, elu records the declared `reads`/`writes`/`network` on
+every `run` op, presents them to the user during approval, commits
+them to the manifest hash, and surfaces them in `elu inspect` and
+`elu audit`. The command process itself runs with whatever
+privileges the elu process has. If the binary lies — declares
+`network = false` and then opens a socket — the lie is auditable
+after the fact by observing what the command actually did, but it
+is not prevented at the kernel level.
 
-Tier 0 protects against the *unintentional* attacker whose package
-was compromised by a typosquat or a takeover and the malicious
-code is in the main package tarball — because they have to declare
-what they want to do, and the declaration is visible. It does not
-protect against a determined attacker who declares one thing and
-does another on platforms without enforcement.
+This is honest, and it is the right default for a package manager
+that does not own the kernel. The protection comes from the
+combination of: (1) the closed native op set means most packages
+never use `run` at all, (2) using `run` is loud in every UI surface
+so reviewers see it, (3) approvals are keyed on manifest hash so
+any change to the `run` op forces re-prompting, and (4) the
+declared capabilities give consumers and auditors a basis for
+deciding whether to trust the package in the first place. A
+determined attacker on the default tier can declare one thing and
+do another, but they have to put the lie in the manifest, and the
+manifest is hashed, signed (optionally), and visible.
 
-### Tier 1 (landlock on Linux)
+### Opt-in landlock on Linux
 
-The standard answer on Linux. Before spawning a `run` command,
-elu installs a landlock ruleset that permits exactly the declared
+When the consumer opts in (via policy or a CLI flag) and the
+platform supports it, elu installs a landlock ruleset before
+spawning each `run` command, permitting exactly the declared
 `reads` and `writes` globs. If `network = false`, the process is
 spawned in a new network namespace with no routes. The command
 runs with the usual uid but cannot exceed its declared reach at
-the kernel level.
+the kernel level. A binary that lies about its capabilities now
+fails with `EACCES` instead of succeeding silently.
 
-Landlock is present in Linux 5.13+. On older kernels, tier 1
-falls back to tier 0 with a warning.
+Landlock is present in Linux 5.13+. On older kernels, the
+landlock path is unavailable and elu falls back to the default
+(declared, not confined) with a warning.
 
-### Tiers 2 and 3
+This is a feature elu offers because the OS makes it cheap, not
+because elu is in the business of sandboxing. The mental model is
+"elu can hand the `run` declarations to the kernel for you on
+Linux," not "elu confines packages."
 
-Future. The mechanisms exist (`sandbox-exec` on macOS has been
-around since 10.5; Windows AppContainer is the foundation of UWP
-and modern sandboxing), but the declarative→platform-specific
-mapping is not trivial and is not v1 work.
+### macOS and Windows
 
-elu will ship with explicit "enforcement tier: 0" on macOS and
-Windows in v1, and the platform story is that the manifest-hash
-approval model is the primary protection until enforcement
-catches up.
+Future. `sandbox-exec` on macOS and AppContainer on Windows are
+the analogous mechanisms, and the declared→platform-specific
+mapping is real work that is not v1. Until then, the default
+(declared, not confined) applies, and consumers who need
+enforcement on those platforms should run elu inside a sandbox
+their environment provides.
+
+### Why this is not a contradiction
+
+Saying "elu is not a sandbox" and "elu can install a landlock
+ruleset before `run`" are not in tension. The first is about
+what elu *is*: a package manager, whose security claims rest on
+native ops being enforced by implementation. The second is about
+what elu *can optionally do*: reuse the OS's own confinement
+primitives for the one op where elu cannot enforce by
+implementation. Native ops do not need confinement and do not get
+it. `run` does need it and gets it where the OS supplies it. The
+package manager remains a package manager either way.
 
 ---
 
@@ -829,12 +924,12 @@ package can do.
   keying means an upgrade that changes capabilities always
   prompts. The attacker can't sneak a new `run` op into a patch
   release without the user seeing the diff.
-- **Declared-permission audit trail.** Even on tier 0, declared
-  capabilities are visible in `elu inspect` and `elu audit`,
-  giving humans and automation a basis for deciding whether to
-  trust a package. An attacker has to either leave evidence in the
-  declaration or confine themselves to previously-approved
-  capabilities.
+- **Declared-permission audit trail.** Even without kernel
+  confinement, declared capabilities are visible in `elu inspect`
+  and `elu audit`, giving humans and automation a basis for
+  deciding whether to trust a package. An attacker using `run` has
+  to either leave evidence in the declaration or confine themselves
+  to previously-approved capabilities.
 - **Cross-ecosystem typosquats via imported packages.** A
   `debian/curl` import that declares no `run` ops cannot execute
   postinst scripts; elu importers deliberately do not execute
@@ -852,12 +947,15 @@ package can do.
 - **Vulnerabilities in elu itself.** A buffer overflow in elu's
   tar reader is out of scope for this model. General software
   assurance applies to elu as a codebase like any other.
-- **Determined attackers on tier 0 platforms.** Without kernel
-  enforcement, a `run` command whose declaration says
+- **Determined attackers using `run` without kernel confinement.**
+  By default, a `run` command whose declaration says
   `network = false` can still try to make network calls; the
-  declaration is honor-system until tier 1. On Linux in v1.x,
-  landlock enforcement closes this gap. On macOS and Windows,
-  tier 0 is the v1 story.
+  declaration is disclosure, not enforcement. Opt-in landlock on
+  Linux closes this gap for `run`. On macOS and Windows, opt-in
+  confinement is future work, and consumers who need enforcement
+  there should run elu inside a sandbox their environment provides.
+  None of this affects native ops, which are enforced by being
+  elu's own code on every platform.
 - **Social engineering of humans.** A user who hits `a` on every
   prompt without reading gets whatever the publisher asked for.
   The diff UX and the default-to-`ask` policy make the attacker's
