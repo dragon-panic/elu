@@ -23,6 +23,10 @@
     {
       "to": "WKIW.jfvm",
       "type": "blocks"
+    },
+    {
+      "to": "FiBu",
+      "type": "blocks"
     }
   ]
 }

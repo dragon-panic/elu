@@ -45,8 +45,10 @@ name    = "docs"
 ref     = "ox-community/shell"
 version = "^1.0"
 
-[hook]
-command = ["sh", "-c", "chmod +x bin/*"]
+[[hook.op]]
+type  = "chmod"
+paths = ["bin/*"]
+mode  = "+x"
 
 [metadata]
 # Free-form, consumer-specific. elu preserves but never interprets.
@@ -164,34 +166,59 @@ This means a skill that depends on `shell` gets `shell`'s layers first,
 then its own. The resolver produces a flat, ordered layer list by
 walking dependencies depth-first; see [resolver.md](resolver.md).
 
-### `[hook]`
+### `[[hook.op]]`
 
-Optional. A single command to run after the full stack has been
-unpacked into the staging directory, before the output is finalized.
+Optional. An ordered list of finalization operations to run after
+the full stack has been unpacked into the staging directory, before
+the output is finalized. Each entry is one operation from a closed
+set implemented in elu itself.
 
-**`command`** — required if `[hook]` is present. An argv-style list.
-The hook runs host-side with the staging directory as its working
-directory. The hook does **not** run inside a chroot, a container, or
-a guest. It runs in the same environment as the `elu` process itself.
+The full specification — op set, field shapes, the `run` escape
+hatch, policy model, manifest-hash approval keying, and enforcement
+tiers — lives in [hooks.md](hooks.md). This section describes only
+what the manifest records.
 
-**`env`** — optional. A map of environment variables set for the hook
-process. elu sets `ELU_STAGING` to the staging directory path
-unconditionally.
+Each entry has a `type` field selecting the operation (`chmod`,
+`mkdir`, `symlink`, `write`, `template`, `copy`, `move`, `delete`,
+`index`, `patch`, or `run`) and additional fields specific to that
+op. All paths in any op are rooted in the staging directory;
+absolute paths and `..` escapes are rejected by the interpreter.
 
-**`timeout_ms`** — optional. Wall-clock timeout. Defaults to 60_000
-(60 seconds). A hook exceeding the timeout fails the stack operation.
+```toml
+[[hook.op]]
+type  = "chmod"
+paths = ["bin/*"]
+mode  = "+x"
 
-Per-package, not per-layer. The 90% case is "finalize the tree after
-everything is in place" (e.g. `ldconfig`, `chmod +x bin/*`, generate a
-combined index). Per-layer hooks are a reserved extension — adding them
-later is an additive schema change and does not break existing
-manifests.
+[[hook.op]]
+type    = "write"
+path    = "etc/version"
+content = "{package.version}\n"
+```
 
-Because the hook is host-side and has access to whatever the elu
-process has access to, publishing a package with a hook is equivalent
-to asking consumers to run a script. Consumers that care about trust
-can refuse to run hooks, or run them in their own sandbox. See
-[consumers.md](consumers.md) and [registry.md](registry.md).
+For the dangerous case — executing an external binary — the `run`
+op exists as an explicit escape hatch with mandatory declared
+capabilities (`reads`, `writes`, `network`, etc.). Consumer policy
+decides whether `run` is honored; the default is `ask` and `trust`
+is never the default. See [hooks.md](hooks.md) for the full model.
+
+**Per-package, not per-layer.** The 90% case is "finalize the tree
+after everything is in place" (`chmod bin/*`, generate a combined
+index). Per-layer hooks are a reserved extension — adding them later
+is an additive schema change and does not break existing manifests.
+
+**The op set is closed.** A publisher cannot introduce new
+capabilities by shipping a clever manifest. Adding a new op is an
+elu-side code change. This is what makes the declarative ops
+trustworthy: consumers know the set of things a package can do from
+reading elu's documentation, not from trusting the publisher.
+
+**Manifest hash commits to hook ops.** The manifest hash transitively
+covers every op in the list and every field of every op. This is
+what lets approvals be keyed on manifest hash — any change to any
+op, including the addition of a new `run` op to a patch release,
+produces a new manifest hash and forces a re-approval. See
+[hooks.md](hooks.md#version-pinning-approvals-are-keyed-on-manifest-hash).
 
 ### `[metadata]`
 
@@ -238,7 +265,8 @@ from a registry fetch), elu validates:
 7. Each `[[layer]]` blob exists in the store **or** its hash appears
    in the fetch plan the resolver is about to execute. Stack operations
    fail if a referenced blob cannot be made present.
-8. If `[hook]` is present, `command` is a non-empty argv list.
+8. If `[[hook.op]]` is present, each entry has a known `type` and
+   all required fields for that op (see [hooks.md](hooks.md)).
 
 Validation failures reject the manifest. elu never silently repairs a
 manifest.
@@ -290,8 +318,10 @@ tags        = ["database", "postgresql"]
 diff_id = "b3:8f7a..."
 size    = 18432
 
-[hook]
-command = ["sh", "-c", "chmod +x bin/*"]
+[[hook.op]]
+type  = "chmod"
+paths = ["bin/*"]
+mode  = "+x"
 
 [metadata.ox]
 requires  = { bins = ["psql"], network = ["*.postgres.example.com:5432"] }

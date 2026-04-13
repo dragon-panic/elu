@@ -1,18 +1,33 @@
 # elu
 
-elu is a universal content-addressed layer engine. It stores file trees as
-hashed layers, stacks them into materialized outputs, and ships them through
-a lightweight registry. The design goal is to be the substrate underneath
-any system that needs reproducible, composable, shareable bundles of files —
-skills and personas for AI agent frameworks, runtime images for sandboxes,
-system package sets, container-adjacent artifacts, or anything else that
-can be expressed as "these files, in this order, with this metadata."
+elu is a universal package manager with a serious trust story. It stores
+file trees as content-addressed layers, stacks them into materialized
+outputs, ships them through a lightweight registry, and — most importantly
+— gives consumers real control over what a package is allowed to do at
+install time. The design goal is to be the substrate underneath any system
+that needs reproducible, composable, shareable bundles of files — skills
+and personas for AI agent frameworks, runtime images for sandboxes, system
+package sets, container-adjacent artifacts — without inheriting the supply
+chain attack surface that every existing package ecosystem has accumulated
+through decades of "hooks are arbitrary shell commands" defaults.
 
 elu has no opinions about what its packages mean. A package is a manifest,
 a list of content-addressed layers, and a free-form metadata bag. What a
 package is *for* — a skill, a persona, a workflow, a VM base image, an apt
 package mirror — is expressed through the `kind` field and interpreted by
 the consumer, not by elu.
+
+elu has strong opinions about what packages are allowed to *do*. Install
+hooks are a closed set of declarative filesystem operations implemented in
+elu's own code, not arbitrary shell commands. A single `run` op exists as
+an explicit escape hatch for packages that genuinely need to execute a
+binary, and `run` is governed by a capability-based permission model
+patterned on Claude Code's tool approval system: capabilities must be
+declared up front, consumers grant them per manifest hash (not per
+version), and upgrades that change a package's capability profile force
+re-approval. This is the feature that makes elu a *package manager*, not
+just a layer engine — and the feature that differentiates it from every
+package manager that exists today. See [hooks.md](hooks.md).
 
 ---
 
@@ -96,9 +111,10 @@ store depends on the store; nothing below depends on anything above.
 
 | Component | Doc | Purpose |
 |-----------|-----|---------|
-| Manifest format | [manifest.md](manifest.md) | Package shape: name, kind, tags, layers, hook |
+| Manifest format | [manifest.md](manifest.md) | Package shape: name, kind, tags, layers, hook ops |
 | Content-addressed store | [store.md](store.md) | Object database for manifests and blobs |
 | Layers | [layers.md](layers.md) | Unpack and stack semantics |
+| Hook capability model | [hooks.md](hooks.md) | Declarative ops, `run` escape, policy, manifest-hash approvals |
 | Dependency resolver | [resolver.md](resolver.md) | References → pinned hashes |
 | Importers | [importers.md](importers.md) | apt, npm, pip → elu packages |
 | Output formats | [outputs.md](outputs.md) | tar, dir, qcow2 targets |
@@ -111,10 +127,23 @@ store depends on the store; nothing below depends on anything above.
 
 ## Key Principles
 
+**Safety is not a feature — it is the default.** Package install
+hooks are a closed set of declarative filesystem operations
+implemented in elu's own code, not arbitrary shell. Packages that
+need to execute external binaries declare their capabilities up
+front, consumers approve per manifest hash, upgrades that change the
+capability profile force re-approval, and `trust` is never the
+default policy. The supply chain attack vector that every existing
+ecosystem has accumulated is closed by construction in the common
+case and audited-and-gated in the escape case. See
+[hooks.md](hooks.md).
+
 **Content addressing is the only identity that matters.** Names and
 versions are human-facing sugar. The store, the resolver, and every
 output format key on hashes. A lockfile is a list of hashes. Two
-packages with the same content are the same package.
+packages with the same content are the same package. Approval
+decisions are keyed on those hashes too — an upgrade is a new hash,
+which is a new approval moment.
 
 **`kind` is opaque to elu.** A package carries a `kind` string in its
 manifest. elu parses it, exposes it, and never dispatches on it.
@@ -122,12 +151,13 @@ Consumers — ox-runner, seguro provisioners, anything else — read
 `kind` and decide what to do. elu itself has no skill-specific or
 persona-specific or runtime-specific code paths.
 
-**One post-unpack hook per package, host-side.** A package may declare
-a single command to run once the full stack is assembled in the
-staging directory. It runs host-side against the staging tree, not
-inside any guest. Per-layer hooks and guest-side execution are
-deliberately out of scope; we will revisit when a real use case forces
-the issue. See [layers.md](layers.md).
+**Hooks are declarative, not shell.** A package's `[[hook.op]]`
+entries select operations from a closed set (chmod, mkdir, symlink,
+write, template, copy, move, delete, index, patch) implemented in
+elu's own code. The single `run` op is the governed escape hatch
+for executing binaries. Per-layer hooks and guest-side execution are
+deliberately out of scope. See [hooks.md](hooks.md) for the full
+capability model.
 
 **Importers produce ordinary packages.** An imported apt package is
 the same shape as a hand-written one. No second manifest format, no
@@ -168,9 +198,10 @@ The shortest way to describe elu to someone who knows OCI:
 > elu is OCI with the Image Config's runtime metadata
 > (`entrypoint`, `cmd`, `env`, `workdir`, `user`, exposed ports)
 > replaced with package-management metadata (`namespace`, `name`,
-> `version`, `kind`, `[[dependency]]`, `[hook]`, `[metadata]`).
-> Layers and the two-hash split are the same. The registry is
-> thinner. That's it.
+> `version`, `kind`, `[[dependency]]`, `[[hook.op]]`, `[metadata]`)
+> and a capability-based trust model for install hooks that OCI
+> does not have. Layers and the two-hash split are the same. The
+> registry is thinner. That's the shape.
 
 ### Explicit mapping
 
@@ -245,12 +276,25 @@ The shortest way to describe elu to someone who knows OCI:
   that doesn't survive into the image). elu treats package-level
   deps as first-class, which is what makes it a package manager
   and not just an image format.
-- **`[hook]`.** A single host-side command run against the
-  staging directory after the stack is assembled and before the
-  output is finalized. OCI's nearest analogue is `entrypoint`,
-  which runs at container-start time. Our hook runs at
-  *unpack* time, in the host environment, and exists for things
-  like `chmod +x bin/*` or generating a combined index file.
+- **`[[hook.op]]` as declarative operations.** OCI images have
+  no notion of install-time finalization at all; they rely on the
+  underlying filesystem being correct when the tar is extracted,
+  and everything else happens at container start. elu packages
+  sometimes need finalization (chmod, symlink, generated index,
+  template substitution) and expose it through a closed set of
+  declarative ops. This is also the elu's trust story.
+- **Capability-based trust model.** OCI has no answer for "what is
+  this image's install script allowed to do" because OCI images
+  don't have install scripts. Traditional package managers do have
+  install scripts and have inherited every supply chain attack of
+  the last twenty years as a result. elu sits in the middle: it
+  can finalize like a package manager, but the finalization is a
+  closed set of declarative ops implemented in elu's own code, with
+  a governed `run` escape hatch whose capabilities must be declared
+  up front and whose approvals are keyed on manifest hash. This is
+  the central feature that differentiates elu from apt, npm, pip,
+  cargo, and every other install-script-based ecosystem. See
+  [hooks.md](hooks.md).
 - **Free-form `[metadata]`.** OCI has `annotations` for the same
   purpose; the shape is different but the role is identical.
 
@@ -273,10 +317,17 @@ diff_id/blob_id split, whiteout semantics, plain HTTP transport
 with presigned blob URLs. Re-deriving any of these from first
 principles would produce something nearly identical — and would
 sacrifice the cheap bridge to OCI tooling that matters for
-adoption. The design goal of elu is to be to OCI what Cargo is
-to .tar.gz: the same underlying format, dramatically better
-ergonomics at the layer *above* the format, with a package
-manager's model of identity, deps, and metadata.
+adoption.
+
+The design goal of elu is to be to OCI what Cargo is to .tar.gz:
+the same underlying format, dramatically better ergonomics at the
+layer *above* the format, with a package manager's model of
+identity, deps, metadata, **and the supply-chain trust story that
+no existing package manager has meaningfully shipped.** Content
+addressing plus capability-based install hooks plus manifest-hash-
+keyed approvals is a combination that neither OCI nor apt/npm/pip
+has, and it is the thing that makes elu worth building rather than
+just using what already exists.
 
 ---
 

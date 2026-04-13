@@ -101,8 +101,10 @@ tags        = ["database", "postgresql"]
 diff_id = "b3:8f7a..."
 size    = 18432
 
-[hook]
-command = ["sh", "-c", "chmod +x bin/*"]
+[[hook.op]]
+type  = "chmod"
+paths = ["bin/*"]
+mode  = "+x"
 
 [metadata.ox]
 requires = { bins = ["psql"], network = ["*.postgres.example.com:5432"] }
@@ -272,8 +274,10 @@ elu is responsible for:
   write.
 - **Applying layers to a staging directory.** Ordered, with
   whiteouts.
-- **Running the one declared post-unpack hook.** Host-side, with a
-  timeout, in the staging directory.
+- **Executing declared hook ops.** The closed set of declarative
+  ops plus the policy-governed `run` escape hatch, host-side against
+  the staging directory, keyed on manifest-hash approvals. See
+  [hooks.md](hooks.md).
 - **Producing the requested output format.** dir, tar, qcow2.
 - **Exposing manifest metadata to consumers.** Via `elu inspect`
   and the `--json` output of other commands.

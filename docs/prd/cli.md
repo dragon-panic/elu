@@ -21,6 +21,7 @@ ring model (see [README.md](README.md)).
 | `--registry <url>` | Override the registry. Comma-separated list for fallback chain. |
 | `--offline` | Never contact a registry. Fail if resolution needs one. |
 | `--locked` | Refuse to proceed if the lockfile would need to change. |
+| `--hooks <mode>` | Override hook policy for this invocation: `off`, `safe`, `ask`, `trust`. Default comes from policy file (see [hooks.md](hooks.md)). **`trust` is never the default**, and passing it requires an explicit CLI flag. |
 | `--json` | Machine-readable output on stdout. |
 | `-v`, `-vv` | Verbose logging. |
 | `-q` | Quiet: suppress progress output. |
@@ -145,12 +146,82 @@ elu search --namespace ox-community
 
 ### `elu inspect <ref>`
 
-Show a package's manifest, resolved dependencies, and layer list.
+Show a package's manifest, resolved dependencies, layer list, and
+**hook operations**. Hook ops are displayed prominently, with `run`
+ops highlighted (ANSI red in a terminal, `"requires_approval":
+true` in `--json`).
 
 ```
 elu inspect ox-community/postgres-query@0.3.0
 elu inspect b3:8f7a...
 elu inspect --json ox-community/postgres-query
+```
+
+Use this before approving a package you haven't seen before. The
+output is designed so a 5-second skim tells you whether the package
+declares any capability beyond the declarative op set.
+
+### `elu audit`
+
+Scan the current lockfile (or a specified one) and report packages
+whose capability profile deserves review. Intended for human review
+during PR or as a CI gate.
+
+```
+elu audit                                    # scan ./elu.lock
+elu audit --json                              # machine-readable
+elu audit --fail-on run                       # exit non-zero if any run op
+elu audit --fail-on network=true              # exit non-zero on any network:true
+elu audit --fail-on unverified-publisher      # exit non-zero on unverified
+elu audit --fail-on drift                     # exit non-zero if approvals don't match manifests
+```
+
+Rules (all available as `--fail-on` values):
+
+| Rule | Triggers when |
+|------|---------------|
+| `run` | A package declares any `run` op. |
+| `network=true` | A `run` op declares `network = true`. |
+| `writes-broad` | A `run` op's `writes` glob covers `**` or broad patterns. |
+| `unverified-publisher` | A package comes from an unverified namespace. |
+| `drift` | A lockfile's approval does not match the manifest hash it pins. |
+| `unpinned` | A root reference in the manifest lacks a lockfile entry. |
+
+See [hooks.md](hooks.md) for the full threat model audit addresses.
+
+### `elu policy`
+
+Manage hook policy. Operates on the user policy file at
+`$XDG_CONFIG_HOME/elu/policy.toml` by default; `--project` targets
+`.elu/policy.toml` in the current directory instead.
+
+```
+elu policy show                               # effective policy (user + project + env)
+elu policy check <ref>                        # report how policy would handle this package
+elu policy allow \
+    --publisher ox-community \
+    --run 'objcopy --strip-debug *' \
+    --reads 'lib/**' --writes 'lib/**' \
+    --network false                            # add an allow rule
+elu policy deny --publisher sketchy-corp      # add a deny rule
+elu policy revoke ox-community/postgres-query # remove approval from lockfile
+elu policy set default ask                    # set default mode
+```
+
+`elu policy check <ref>` is the fastest way to understand what
+would happen on install:
+
+```
+$ elu policy check ox-community/postgres-query@0.3.2
+ox-community/postgres-query@0.3.2
+  manifest: b3:8f7a...
+  declared ops: chmod, run
+  run: ldconfig
+  reads:   lib/**
+  writes:  lib/**
+  network: false
+
+  → APPROVED (publisher=ox-community, run match on "ldconfig")
 ```
 
 ### `elu ls`

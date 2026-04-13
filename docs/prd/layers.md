@@ -202,52 +202,70 @@ plain host-side directory.
 
 ## Post-Unpack Hook
 
-If the manifest declares a `[hook]` (see [manifest.md](manifest.md)),
-it runs once after the full stack is assembled in staging and before
-the output is finalized.
+If the manifest declares `[[hook.op]]` entries (see
+[manifest.md](manifest.md) and the full spec in
+[hooks.md](hooks.md)), they run in order after the full stack is
+assembled in staging and before the output is finalized.
 
 ```
 stack(manifest, target):
     staging = mkdtemp()
     for layer in resolved_layers(manifest):
         apply(layer, staging)
-    if manifest.hook:
-        run_hook(manifest.hook, cwd=staging, env=hook_env(staging))
+    if manifest.hook.op:
+        check_approval(manifest, policy)          # may prompt user
+        for op in manifest.hook.op:
+            execute_op(op, cwd=staging)
     finalize(staging, target, output_format)
 ```
 
-Hook execution:
+A hook op that fails rolls back the entire stack operation: the
+staging directory is removed, no output is produced, earlier ops
+in the same hook are not individually rolled back but the final
+target never appears. Partial outputs are never committed.
 
-- **cwd** is the staging directory.
-- **env** starts from the elu process's environment, adds
-  `ELU_STAGING=<staging path>`, and overlays the manifest's
-  `hook.env` table if present.
-- **stdin** is `/dev/null`.
-- **stdout and stderr** are captured and reported; on success they
-  are discarded, on failure they are included in the error.
-- **timeout** defaults to 60 seconds, overridable via
-  `hook.timeout_ms`.
-- **exit code 0** means success; anything else fails the stack.
+### Op execution
 
-A hook that fails rolls back the entire stack operation: the staging
-directory is removed, no output is produced. Partial outputs are
-never committed.
+The ten declarative ops (`chmod`, `mkdir`, `symlink`, `write`,
+`template`, `copy`, `move`, `delete`, `index`, `patch`) are
+implemented in elu's own code. They never spawn a subprocess and
+never touch anything outside the staging directory. All path
+arguments are resolved relative to staging; `..` and absolute paths
+are rejected.
 
-### Trust boundary
+The `run` op is the one exception. It executes a binary with
+declared capabilities (`command` as argv, `reads`/`writes` as
+staging-rooted globs, `network` bool, `env` from an allowlist,
+`timeout_ms`). elu consults policy to decide whether the op is
+allowed to execute. Policy modes: `off` (refuse all hooks), `safe`
+(declarative ops only), `ask` (prompt on first encounter of each
+manifest hash's `run` ops; default), `trust` (honor all). See
+[hooks.md](hooks.md) for the full policy model, approval keying,
+enforcement tiers, and upgrade diff UX.
 
-The hook runs with the privileges of the elu process. Publishing a
-package with a hook is equivalent to asking every consumer to run
-your shell script. Consumers that distrust hooks have two options:
+### Trust model
 
-1. Refuse packages whose manifest contains a hook
-   (`--no-hooks`; stack fails if a hook is present).
-2. Run elu itself inside their own sandbox (container, VM, seguro)
-   so the hook's reach is bounded by what the sandbox allows.
+The capability model for hooks is elu's central answer to package-
+ecosystem supply chain attacks via install scripts. Two properties
+do most of the work:
 
-elu itself does not sandbox hooks. A fancy sandbox is the kind of
-feature that looks great in a PRD and ships with holes. The policy is:
-hooks are trusted code, and consumers who want isolation get it from
-the environment elu runs in.
+1. **Declarative ops are a closed set.** A publisher cannot
+   introduce new capabilities by shipping a clever manifest. Every
+   op that exists is implemented in elu's own code, and the
+   majority of real-world finalization needs are covered without
+   any arbitrary code execution at all.
+2. **Approvals are keyed on manifest hash, not version.** Any
+   change to a package's hook ops — adding a new `run`, widening
+   `writes`, flipping `network` to true — changes the manifest
+   hash and forces a re-approval on upgrade, with a diff UX that
+   highlights exactly what changed from the previously-approved
+   version.
+
+Consumers that want additional isolation beyond tier 0 can enable
+landlock enforcement on Linux (tier 1, opt-in in v1.x), or run
+elu itself inside an outer sandbox (container, VM, seguro). These
+compose with the declarative capability model; they do not
+replace it. See [hooks.md](hooks.md#enforcement-tiers).
 
 ### Why per-package, not per-layer
 

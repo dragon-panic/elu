@@ -257,10 +257,36 @@ Clients that care verify the signature against the publisher's
 known public key. Clients that don't, don't. Signatures are
 advisory; content integrity is already guaranteed by hash matching.
 
-Skill and hook trust is **not** a registry concern. The registry
-tells clients what exists and where; it does not audit what a package
-does. A consumer that cares whether a hook is safe to run is the one
-who decides whether to run it. See [layers.md](layers.md) on hooks
+### Hook op declarations are indexed
+
+Because the capability model ([hooks.md](hooks.md)) makes a package's
+hook ops part of its manifest hash, the registry can and does
+extract them into searchable metadata. For every published version,
+the registry indexes:
+
+- The list of op types present (`chmod`, `run`, etc.).
+- Whether any `run` ops are present.
+- Whether any `run` op declares `network = true`.
+- The rough shape of `reads`/`writes` globs on `run` ops.
+
+This makes it possible to search for "packages whose hooks only use
+declarative ops," "packages whose runs touch the network," and
+similar queries. A consumer picking between two similar packages
+can prefer the one with a simpler capability profile. A verified
+publisher with a clean profile gets surfaced differently in the
+registry UI from an unverified publisher whose package declares
+`run` with `network = true`.
+
+The registry itself makes no judgment about whether a capability
+profile is "safe." It exposes the facts; consumers decide. This is
+consistent with the rest of the registry's design as a dumb lookup
+service — the intelligence is in the client policy.
+
+Skill and hook trust decisions live at the consumer side. The
+registry tells clients what a package declares; whether to run a
+given op is a consumer policy question (`--hooks=ask`, the allow
+rules in `policy.toml`, the manifest-hash-keyed approval in
+`elu.lock`). See [hooks.md](hooks.md) for the full policy model
 and [consumers.md](consumers.md) on kind-specific policy.
 
 ---
