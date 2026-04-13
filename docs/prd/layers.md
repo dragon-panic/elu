@@ -28,33 +28,47 @@ Inside the tar:
   them but does not require them).
 - Whiteouts (see below).
 
-### Identity and compression
+### Identity: diff_id and blob_id
 
-The **hash of a layer is the hash of its uncompressed tar bytes.**
-This is the only identity that matters: it is what the manifest
-records, what the resolver pins, what the signature covers.
+A layer has two hashes:
 
-The blob as **stored on disk** and as **served from the registry**
-may be compressed — v1 supports `none`, `gzip`, and `zstd`. The
-compression algorithm is declared per-layer in the manifest (see
-[manifest.md](manifest.md#layer)) and is a transport/storage hint,
-not part of the identity. Two publishers that ship the same logical
-layer with different compressions produce the same layer hash but
-different on-disk bytes. Deduplication at the store layer is by
-hash, so only one encoding is kept; see [store.md](store.md) for the
-first-writer-wins rule.
+- **`diff_id`** — hash of the **uncompressed tar bytes**. This is
+  the layer's logical identity. It is what the manifest records,
+  what the resolver pins, and what signatures transitively cover.
+  It is stable under recompression: re-encoding the same tar with
+  a different compressor does not change the diff_id.
 
-The rationale for a single hash (rather than the OCI diff_id plus
-blob-digest split): we get the same "encoding can evolve without
-changing identity" property with half the bookkeeping. The thing
-we lose is deduplication across multiple simultaneous compressed
-encodings of the same tar in a single store — a narrow case we are
-content to re-fetch when it happens.
+- **`blob_id`** — hash of the **bytes as stored** on disk and
+  transferred on the wire. This is the CAS key. It changes when
+  the compression changes.
+
+The manifest stores only `diff_id`. The store is keyed on `blob_id`
+and maintains a `diffs/diff_id → blob_id` index so the stacker can
+go from "what the manifest asks for" to "what file to open." See
+[store.md](store.md) on the two-ID CAS and [manifest.md](manifest.md#diff_id-vs-blob_id)
+on the manifest shape.
+
+v1 supports three on-disk encodings: `none` (plain tar), `gzip`,
+`zstd`. The encoding is not recorded in the manifest or anywhere
+else — readers sniff the magic bytes at the head of the blob (plain
+tar has `ustar` at offset 257; gzip starts `1f 8b`; zstd starts
+`28 b5 2f fd`) and pick the decompressor accordingly.
+
+The rationale for two IDs (matching OCI's diff_id / layer-digest
+split): a pure CAS requires `hash(get(k)) == k`, which would be
+violated if we tried to key by diff_id while storing compressed
+bytes. Keeping the two IDs separate gives us a clean CAS invariant
+*and* a manifest identity that survives recompression. The cost is
+one extra index file per layer; the benefit is that every other
+component gets a simpler model.
 
 What a layer blob is **not**:
 
 - Not encrypted.
-- Not signed. Hash identity is the integrity story.
+- Not signed as bytes. Hash identity is the integrity story:
+  signing the manifest commits to the diff_ids, which commit to the
+  filesystem content, independent of whatever encoding the stored
+  blob happened to use.
 
 ### Whiteouts
 
@@ -73,9 +87,11 @@ elu layers look very similar to OCI image layers because the
 underlying problem is the same. They are not OCI layers:
 
 - No media types, no JSON descriptors, no manifest lists.
-- A single hash per layer (over the uncompressed tar), not OCI's
-  diff_id plus blob digest pair.
-- No config blob separate from the manifest.
+- Two hashes per layer (diff_id and blob_id), same shape as OCI's
+  diff_id / layer-digest split but using our naming and without the
+  media-type machinery around it.
+- No config blob separate from the manifest. Runtime metadata lives
+  in the manifest's `metadata` table, not in a second blob.
 - Whiteout convention (`.wh.foo`, `.wh..wh..opq`) is borrowed
   verbatim, so an elu → OCI bridge can rewrap layers mechanically.
 
@@ -87,15 +103,16 @@ images from elu stacks. Neither is in v1.
 
 ## Stacking Semantics
 
-Stacking takes an ordered list of layer hashes and a target directory
+Stacking takes an ordered list of diff_ids and a target directory
 and produces a merged file tree.
 
 ```
-stack(layers, target):
+stack(diff_ids, target):
     ensure target exists and is empty (or enforce --force)
-    for each layer_hash in layers:                    # in manifest order
-        raw = store.open(layer_hash)                  # file handle
-        tar = decompress_stream(raw, layer.compression)
+    for each diff_id in diff_ids:                     # in manifest order
+        blob_id = store.resolve_diff(diff_id)         # diffs/ → blob_id
+        raw = store.open(blob_id)                     # file handle
+        tar = decompress_stream(raw, sniff_magic(raw))
         for entry in tar_entries(tar):
             apply entry into target
 ```
@@ -269,10 +286,10 @@ the qcow2 output owns that concern. See [outputs.md](outputs.md).
 layers.stack(manifest, target, *, hooks=True) -> stats
 
 # Apply a single layer (lower level, used by stack)
-layers.apply(layer_hash, compression, target) -> stats
+layers.apply(diff_id, target) -> stats
 
-# Compute the ordered layer list from a manifest + its resolved deps
-layers.flatten(manifest, *, resolver) -> list of (layer_hash, compression)
+# Compute the ordered diff_id list from a manifest + its resolved deps
+layers.flatten(manifest, *, resolver) -> list of diff_id
 ```
 
 `flatten` walks dependencies depth-first and emits each dep's layers
@@ -303,7 +320,11 @@ changes since layer X" is expressible at the producer layer (by
 authoring a layer that only contains the delta and whiteouts) and
 does not need engine support.
 
-**No multi-compression storage.** The store keeps exactly one
-encoding per layer hash (first writer wins). A consumer that happens
-to fetch the same hash compressed differently later pays a small
-re-fetch cost but never stores both. See [store.md](store.md).
+**No multi-compression index.** The store is a pure CAS — any
+number of blob_ids for the same diff_id can coexist in `objects/`
+without violating invariants. But the `diffs/` index only records
+one: the first blob_id seen for a given diff_id. Subsequent
+differently-compressed blobs of the same logical layer sit orphaned
+in `objects/` and are GC'd. The alternative (indexing every
+encoding a diff_id has been seen in) was considered and rejected as
+complexity for a narrow case. See [store.md](store.md).

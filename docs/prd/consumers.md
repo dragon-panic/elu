@@ -98,7 +98,8 @@ description = "Query PostgreSQL databases, inspect schemas, explain plans"
 tags        = ["database", "postgresql"]
 
 [[layer]]
-hash = "b3:8f7a..."
+diff_id = "b3:8f7a..."
+size    = 18432
 
 [hook]
 command = ["sh", "-c", "chmod +x bin/*"]
@@ -143,7 +144,8 @@ kind        = "ox-persona"
 description = "Deliberate, test-first software engineer"
 
 [[layer]]
-hash = "b3:..."      # layer contains persona.md
+diff_id = "b3:..."    # layer contains persona.md
+size    = 2048
 
 [metadata.ox]
 runtime = "claude"
@@ -169,7 +171,8 @@ stacking.
 kind = "ox-workflow"
 
 [[layer]]
-hash = "b3:..."      # contains workflow.toml
+diff_id = "b3:..."    # contains workflow.toml
+size    = 1024
 ```
 
 There is very little metadata here because the workflow.toml file
@@ -191,7 +194,8 @@ kind = "ox-runtime"
 ref = "debian/nodejs"
 
 [[layer]]
-hash = "b3:..."      # claude binary + runtime.toml
+diff_id = "b3:..."    # claude binary + runtime.toml
+size    = 65536
 ```
 
 ox-server reads `runtime.toml` from the stacked tree to get the

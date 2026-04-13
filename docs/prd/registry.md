@@ -27,20 +27,42 @@ For each published package version:
 |-------|---------|
 | `namespace/name` | The reference. Unique across the registry. |
 | `version` | Semver string. Unique within a `namespace/name`. |
-| `manifest_hash` | Content hash of the manifest. The real identity. |
+| `manifest_blob_id` | Hash of the manifest bytes. The package's identity. |
+| `manifest_url` | Where to fetch the manifest bytes. |
 | `kind` | From the manifest. Indexed for search. |
 | `description` | From the manifest. Indexed for search. |
 | `tags` | From the manifest. Indexed for search. |
-| `blob_urls` | Where to fetch each blob referenced by the manifest. |
+| `layers` | Per-layer distribution record: `diff_id`, `blob_id`, `url`, compressed and uncompressed sizes. See below. |
 | `publisher` | Verified identity that published this version. |
 | `published_at` | Timestamp. |
-| `signature` | Optional publisher signature over the manifest hash. |
+| `signature` | Optional publisher signature over the manifest blob_id. |
 
-Note what is **not** in this list: the manifest bytes themselves and
-the layer bytes themselves. The registry stores only the hash plus a
-URL where the bytes can be fetched. Bytes live in object storage
-managed by the registry operator (S3, GCS, a CDN, a plain HTTP
-server) — elu does not care, as long as clients can `GET` them.
+The `layers` array is the bridge from the manifest (which names
+layers by `diff_id`) to the actual bytes a client can fetch (keyed
+by `blob_id`). Each entry:
+
+```json
+{
+    "diff_id":           "b3:cc...",   // hash of uncompressed tar; matches the manifest
+    "blob_id":           "b3:ff...",   // hash of stored bytes
+    "url":               "https://blobs.example/b3/ff/...",
+    "size_compressed":   4123,          // bytes on the wire / on disk
+    "size_uncompressed": 18432          // bytes after decompression; matches manifest
+}
+```
+
+A different publisher shipping the same source tree with a
+different compressor produces a record with the same `diff_id` but
+a different `blob_id` and `url`. Clients that already have a blob
+matching this `diff_id` (in any encoding) can skip the fetch; the
+diff_id is the shared cache key. Clients that don't fetch from
+`url` and verify.
+
+Note what is **not** in this list: the manifest bytes themselves
+and the layer bytes themselves. The registry stores only metadata
+and pointers. Bytes live in object storage managed by the registry
+operator (S3, GCS, a CDN, a plain HTTP server) — elu does not care,
+as long as clients can `GET` them.
 
 ---
 
@@ -56,22 +78,32 @@ Content-Type: application/json
 Authorization: Bearer <publisher token>
 
 {
-    "manifest_hash": "b3:8f7a...",
-    "manifest":      "<base64-encoded manifest bytes>",
-    "blobs": [
-        {"hash": "b3:3b9e...", "size": 18432, "upload_url": "..."}
+    "manifest_blob_id": "b3:8f7a...",
+    "manifest":         "<base64-encoded manifest bytes>",
+    "layers": [
+        {
+            "diff_id":           "b3:cc...",
+            "blob_id":           "b3:ff...",
+            "size_compressed":   4123,
+            "size_uncompressed": 18432
+        }
     ]
 }
 ```
 
 The flow:
 
-1. Client `POST`s the manifest and the list of blobs it references.
-2. Server validates the manifest (same rules as `store.put_manifest`).
+1. Client `POST`s the manifest bytes and the per-layer distribution
+   records. The client has already computed both IDs locally during
+   `put_blob`.
+2. Server validates the manifest (same rules as `store.put_manifest`)
+   and checks that every `diff_id` in the manifest appears in the
+   `layers` array.
 3. Server checks that `namespace/name@version` is not already taken.
-4. Server returns per-blob `upload_url`s for any blobs it does not
-   already have. For blobs it already has (from another package that
-   shares a layer), it returns nothing.
+4. Server returns per-layer `upload_url`s for any `blob_id` it does
+   not already have in its blob store. For blob_ids already present
+   (shared with another package), it returns nothing — the layer is
+   already distributable.
 5. Client `PUT`s each missing blob to its `upload_url`.
 6. Client `POST`s `/commit` to finalize:
 
@@ -100,7 +132,7 @@ that point at their own API and handle the forwarding.
 ## Fetching
 
 A client resolves `namespace/name@version` and gets back the manifest
-hash plus the list of blob URLs.
+blob_id plus the per-layer distribution records.
 
 ```
 GET /api/v1/packages/<namespace>/<name>/<version>
@@ -110,17 +142,19 @@ Response:
 
 ```json
 {
-    "namespace":     "ox-community",
-    "name":          "postgres-query",
-    "version":       "0.3.0",
-    "kind":          "ox-skill",
-    "manifest_hash": "b3:8f7a...",
-    "manifest_url":  "https://blobs.example/b3/8f/7a/...",
-    "blobs": [
+    "namespace":        "ox-community",
+    "name":             "postgres-query",
+    "version":          "0.3.0",
+    "kind":             "ox-skill",
+    "manifest_blob_id": "b3:8f7a...",
+    "manifest_url":     "https://blobs.example/b3/8f/7a/...",
+    "layers": [
         {
-            "hash": "b3:3b9e...",
-            "size": 18432,
-            "url":  "https://blobs.example/b3/3b/9e/..."
+            "diff_id":           "b3:cc...",
+            "blob_id":           "b3:ff...",
+            "url":               "https://blobs.example/b3/ff/...",
+            "size_compressed":   4123,
+            "size_uncompressed": 18432
         }
     ],
     "published_at": "2026-03-20T14:22:11Z",
@@ -128,12 +162,36 @@ Response:
 }
 ```
 
-The client fetches `manifest_url` and `blob[].url` via plain HTTP
-`GET`. Each response is verified by hashing the bytes and comparing
-to the declared hash — the registry does not need to be trusted with
-content integrity because content addressing does it for us. A
-compromised registry can redirect to a malicious blob URL, and the
-client will notice when the hashes do not match.
+The client fetches `manifest_url` and each `layers[].url` via plain
+HTTP `GET`. Verification is two-layer:
+
+1. **Manifest.** Hash the fetched bytes → must equal
+   `manifest_blob_id`. Parse. For each layer in the manifest, the
+   declared `diff_id` must appear in the registry response's
+   `layers` array.
+2. **Each layer blob.** Hash the fetched bytes → must equal the
+   registry record's `blob_id`. Then decompress and hash again →
+   must equal the registry record's `diff_id`, which must match
+   the manifest's `diff_id`. Both hashes are checked; neither the
+   registry nor the blob backend needs to be trusted with content
+   integrity.
+
+A compromised registry can redirect to a malicious blob URL, and
+the client will notice at the `blob_id` check. A malicious blob URL
+that happens to match the `blob_id` but decompresses to different
+content is impossible — the `diff_id` check catches it. A
+compromised registry that lies about the `blob_id` is caught at
+the manifest's `diff_id` boundary.
+
+### Skipping fetches via diff_id
+
+A client that already has a blob with the requested `diff_id` (in
+any encoding) skips the fetch entirely. It does not matter which
+publisher's encoding it has — the logical layer is the same, and
+the local `diffs/diff_id → blob_id` index resolves to whichever
+blob is already on disk. This is the property that makes the
+manifest-diff_id-only design pay off: dedup across publishers and
+across compression choices happens automatically.
 
 ### Version listing
 

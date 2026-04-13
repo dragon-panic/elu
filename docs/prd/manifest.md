@@ -32,14 +32,14 @@ description = "Query PostgreSQL databases, inspect schemas, explain plans"
 tags        = ["database", "postgresql", "observability"]
 
 [[layer]]
-hash = "b3:8f7a1c2e4d..."
-size = 18432
-name = "bin"          # optional, purely for humans / diagnostics
+diff_id = "b3:8f7a1c2e4d..."   # hash of the uncompressed tar
+size    = 18432                 # uncompressed size
+name    = "bin"                 # optional, purely for humans / diagnostics
 
 [[layer]]
-hash = "b3:3b9e0a77f1..."
-size = 512
-name = "docs"
+diff_id = "b3:3b9e0a77f1..."
+size    = 512
+name    = "docs"
 
 [[dependency]]
 ref     = "ox-community/shell"
@@ -109,33 +109,45 @@ behavior needs to be triggered by metadata, that is what `kind` is for.
 An ordered list. Layer order is significant: layers are applied in the
 order they appear in the manifest, earlier first. Each entry:
 
-**`hash`** — required. Content hash of the layer, including the
-algorithm prefix (e.g. `b3:...`). The hash is always taken over the
-**uncompressed tar bytes**, regardless of what encoding the blob is
-stored or transferred in. Two layers with identical uncompressed
-content have the same hash even if one was gzipped and one was
-zstd-compressed on disk. The blob must be present in the store or
-fetchable from the registry before the package can be stacked.
+**`diff_id`** — required. Hash of the **uncompressed tar bytes** of
+the layer, including the algorithm prefix (e.g. `b3:...`). This is
+the layer's logical identity — what signatures transitively cover and
+what the resolver pins. The manifest is stable under recompression:
+re-encoding the same tar with a different compressor does not change
+the diff_id, so it does not change the manifest hash, so it does not
+change the package's identity.
 
-**`compression`** — optional. One of `none`, `gzip`, `zstd`. Defaults
-to `zstd`. Declares the encoding the blob uses when stored in the CAS
-and served from the registry. Since `hash` is over the uncompressed
-tar, `compression` is a transport and storage hint, not an identity
-field. Two publishers that compress the same logical layer with
-different algorithms produce the same `hash` but different on-disk
-bytes; a store keyed only by hash will hold whichever form arrived
-first (see [store.md](store.md)).
-
-**`size`** — required. Byte size of the **uncompressed tar**, matching
-the bytes the hash covers. Used for progress reporting and sanity
-checks. Not the source of truth — the hash is. The compressed-on-wire
-size is a transport detail and is not carried in the manifest.
+**`size`** — required. Byte size of the uncompressed tar, matching
+the bytes the diff_id covers. Used for progress reporting and sanity
+checks. Not the source of truth — the diff_id is. The compressed
+wire and on-disk sizes are transport/storage details and are not
+carried in the manifest; they live in the registry's package record
+(see [registry.md](registry.md)) alongside the `blob_id` for each
+layer.
 
 **`name`** — optional. A short label shown in diagnostics. Has no
 effect on unpacking.
 
 Layers themselves are described in [layers.md](layers.md). The manifest
 only names them.
+
+### diff_id vs blob_id
+
+A layer has two hashes, and the manifest records only one of them:
+
+| Name | Hashes | Lives in | Purpose |
+|------|--------|----------|---------|
+| `diff_id` | the uncompressed tar | the manifest | Stable logical identity. |
+| `blob_id` | the bytes as stored on disk / on the wire | the CAS and the registry's package record | What transport verifies; the content-addressed store key. |
+
+The two IDs exist because a layer's *bytes on disk* are whatever
+encoding some publisher chose (gzip, zstd, plain tar), while its
+*logical identity* should not depend on that choice. Keeping the
+manifest diff_id-only means two publishers who ship the same source
+tree with different compressors produce the same manifest hash — and
+therefore the same package — even though their stored blobs are
+different. See [store.md](store.md) for how the two IDs relate at the
+CAS layer and [layers.md](layers.md) for the unpack flow.
 
 ### `[[dependency]]`
 
@@ -220,7 +232,7 @@ from a registry fetch), elu validates:
 2. `namespace` and `name` match the allowed character set.
 3. `version` parses as semver.
 4. `kind` is a non-empty string.
-5. Each `[[layer]].hash` parses as a hash with a known algorithm.
+5. Each `[[layer]].diff_id` parses as a hash with a known algorithm.
 6. Each `[[dependency]].ref` parses as `namespace/name` and `version`
    parses as a semver constraint or hash.
 7. Each `[[layer]]` blob exists in the store **or** its hash appears
@@ -248,8 +260,8 @@ kind        = "native"
 description = "An example package containing a greeting file"
 
 [[layer]]
-hash = "b3:d2c4..."
-size = 42
+diff_id = "b3:d2c4..."
+size    = 42
 ```
 
 Stacking this package unpacks its single layer into the target and
@@ -275,8 +287,8 @@ description = "Query PostgreSQL databases"
 tags        = ["database", "postgresql"]
 
 [[layer]]
-hash = "b3:8f7a..."
-size = 18432
+diff_id = "b3:8f7a..."
+size    = 18432
 
 [hook]
 command = ["sh", "-c", "chmod +x bin/*"]
