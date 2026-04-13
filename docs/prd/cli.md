@@ -94,17 +94,106 @@ elu stack ox-runner-image -o runner.qcow2 --base debian/bookworm-minbase
 
 See [outputs.md](outputs.md) for format-specific options.
 
-### `elu build <manifest>`
+### `elu init`
 
-Take a local manifest file, hash and store any referenced layer
-files, and put the manifest in the store. This is how hand-authored
-packages enter the store without going through an importer.
+Scaffold a new `elu.toml` in the current directory (or a path given
+by `--path`). Interactive by default; non-interactive with flags.
 
 ```
-elu build ./manifest.toml
+elu init                                     # interactive; asks kind, name, etc.
+elu init --kind native --name my-pkg         # minimal native package
+elu init --kind ox-skill --name my-skill     # ox-skill with bin layer + chmod hook
+elu init --kind ox-persona --name reviewer   # persona skeleton
+elu init --from ./existing-dir               # infer a starter from a project tree
+elu init --template ox-community/rust-skill  # from a registry template
+```
+
+`--from` is the killer flag for the agent flow: point elu at a
+directory with a `Cargo.toml`/`package.json`/etc. and get a
+best-guess starter `elu.toml` with TODO comments on fields that
+need human review. Templates are themselves elu packages of
+`kind = "elu-template"` published to the registry.
+
+See [authoring.md](authoring.md#elu-init-starting-a-new-package) for
+the full template list and inference rules.
+
+### `elu build`
+
+Read the `elu.toml` in the current directory (or a path given by
+`--manifest`), produce layer blobs from the declared file patterns,
+resolve dependencies, and write a stored-form manifest to the CAS.
+This is how hand-authored packages enter the store. See
+[authoring.md](authoring.md#the-build-pipeline) for the full
+pipeline.
+
+```
+elu build                        # build ./elu.toml
+elu build --manifest ./other.toml
+elu build --json                 # machine-readable output (manifest hash, stats)
+elu build --check                # validate only; do not produce layers
+elu build --watch                # rebuild on file changes
+elu build --locked               # refuse to update the lockfile
+elu build --strict               # promote warnings to errors (sensitive-pattern, etc.)
 ```
 
 `elu build` does **not** publish. Publishing is a separate step.
+Two commands, two responsibilities — one for packaging, one for
+distribution.
+
+**`elu build` does not run build tools.** It does not invoke
+`cargo`, `make`, `npm run build`, or anything else. It packages
+files that already exist on disk. You run your build tool first,
+then `elu build`. See
+[authoring.md](authoring.md#what-elu-is-not-a-build-system) on why
+this is a hard boundary.
+
+### `elu check`
+
+Validate the current directory's `elu.toml` against the schema
+without producing layers. Fast feedback for iteration.
+
+```
+elu check
+elu check --json                 # structured errors
+elu check --strict               # treat warnings as errors
+```
+
+Equivalent to `elu build --check` but scoped tighter: it never
+touches the store, never updates the lockfile, and never writes
+anything. Used heavily in agent iteration loops and in editor
+save-hook integrations.
+
+### `elu explain <ref>`
+
+Render a plain-English summary of a package: what it is, what it
+depends on, what its layers contain, what its hook ops declare,
+who published it, how big it is.
+
+```
+elu explain ox-community/postgres-query@0.3.2
+elu explain b3:8f7a...
+elu explain --json ox-community/postgres-query
+elu explain --diff <old-ref> <new-ref>     # capability diff between two versions
+```
+
+`elu explain` is the command humans run before approving a package
+they haven't seen, and the command agents run to render PR
+descriptions on lockfile bumps. The `--diff` form highlights what
+changed between two manifest hashes — the same diff UX used during
+upgrade approval (see [hooks.md](hooks.md#the-diff-ux)).
+
+### `elu schema`
+
+Emit a JSON Schema document describing the `elu.toml` format.
+Agents load this once and validate generated files against it
+without having to run elu in the path.
+
+```
+elu schema                       # JSON Schema for elu.toml (covers both source and stored forms)
+elu schema --stored              # stored-form only
+elu schema --source              # source-form only
+elu schema --yaml                # YAML Schema equivalent
+```
 
 ### `elu publish <ref>`
 

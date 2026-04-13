@@ -10,6 +10,13 @@ Manifests are stored in the content-addressed store alongside the layer
 blobs they reference. A manifest's hash is the package's canonical
 identity. Tags and names resolve to manifest hashes through the registry.
 
+**This document describes what a manifest *is*.** How an author *makes*
+one — the `elu.toml` source file, the `elu build` pipeline, the
+scaffolding and validation commands — lives in
+[authoring.md](authoring.md). The two docs share the same schema; they
+describe different field-population rules for different stages of the
+workflow.
+
 ---
 
 ## Shape
@@ -109,7 +116,14 @@ behavior needs to be triggered by metadata, that is what `kind` is for.
 ### `[[layer]]`
 
 An ordered list. Layer order is significant: layers are applied in the
-order they appear in the manifest, earlier first. Each entry:
+order they appear in the manifest, earlier first. Each entry has one of
+two shapes depending on whether the manifest is in **source form** (an
+`elu.toml` an author is editing, before `elu build`) or **stored form**
+(a manifest written to the CAS by `elu build`). See [Source vs Stored
+Form](#source-vs-stored-form) below and [authoring.md](authoring.md)
+for the full authoring workflow.
+
+A **stored-form** layer entry has resolved content hashes:
 
 **`diff_id`** — required. Hash of the **uncompressed tar bytes** of
 the layer, including the algorithm prefix (e.g. `b3:...`). This is
@@ -129,6 +143,21 @@ layer.
 
 **`name`** — optional. A short label shown in diagnostics. Has no
 effect on unpacking.
+
+A **source-form** layer entry has build directives instead:
+
+**`include`** — required in source form. Glob patterns rooted at the
+project root; files matching these patterns are packed into the layer.
+**`exclude`**, **`strip`**, **`place`**, and **`mode`** are optional
+build-time directives consumed by `elu build`. See
+[authoring.md](authoring.md#layer-authoring-fields) for the full
+source-form field set.
+
+`elu build` reads the source form, walks the filesystem, produces tar
+blobs, and writes a stored-form manifest with resolved `diff_id`s.
+Source and stored forms of a `[[layer]]` entry cannot be mixed: a
+layer has either build directives (authoring) or resolved content
+hashes (packaged), never both. Validation rejects any mix.
 
 Layers themselves are described in [layers.md](layers.md). The manifest
 only names them.
@@ -228,6 +257,41 @@ information their `kind` requires — a skill might put `requires.bins`
 and `inputs` here, a persona might put `runtime` and `model`, an os
 base might put architecture and kernel version. Because elu never
 reads it, adding new consumer-side fields never requires an elu change.
+
+---
+
+## Source vs Stored Form
+
+The same `elu.toml` schema describes two related shapes at different
+stages of the authoring workflow:
+
+| | Source form | Stored form |
+|---|---|---|
+| **Where it lives** | Project root, committed to VCS | Content-addressed store, byte-addressed |
+| **Who writes it** | Human or agent authoring the package | `elu build` |
+| **`[[layer]]` fields** | `include` (required), `exclude`, `strip`, `place`, `mode` | `diff_id` (required), `size`, `name` |
+| **Purpose** | Describes how to produce the package from files on disk | Describes the package as it exists in the CAS |
+| **Purpose of a hash** | n/a — the file is pre-build | The manifest hash is the package's identity |
+
+Both forms are valid `elu.toml` per the schema. Validation rejects
+manifests that mix source and stored fields on the same `[[layer]]`
+entry: a layer is either one or the other, never both.
+
+`elu build` is the pipeline that transforms source into stored — see
+[authoring.md#the-build-pipeline](authoring.md#the-build-pipeline).
+The manifest hash (the package's identity) is computed over the
+stored form only; the source form never reaches the CAS.
+
+This split exists because:
+
+1. Authors care about files and globs, not hashes — they edit source
+   form and get meaningful feedback.
+2. The CAS, the resolver, and every consumer care about hashes, not
+   build rules — they see stored form and never have to interpret
+   `include` patterns.
+3. The same schema file covers both, so editors, language servers,
+   and agents learn one format. The only difference is which fields
+   on `[[layer]]` are populated.
 
 ---
 

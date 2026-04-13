@@ -29,6 +29,23 @@ re-approval. This is the feature that makes elu a *package manager*, not
 just a layer engine — and the feature that differentiates it from every
 package manager that exists today. See [hooks.md](hooks.md).
 
+elu is built to be used by **humans and agents**, with the same
+surface. Authoring a new package is one file (`elu.toml`) at the
+project root, edited in 60 seconds, built with one command (`elu
+build`), and published with one more (`elu publish`). The authoring
+file is declarative: you name the files that go into each layer and
+elu handles the content hashing, tar construction, and manifest
+generation. elu does not build your software — you run `cargo`,
+`make`, or whatever you already use, and point elu at the resulting
+files. Docker's conflation of build-and-package is the anti-pattern
+we are explicitly not repeating. For agents generating packages
+from a natural-language spec, every command has a `--json` mode
+with structured errors and stable error codes, `elu schema` emits a
+JSON Schema for offline validation, `elu init --from <dir>` infers
+a starter from an existing project tree, and `elu explain` renders
+plain-English package summaries for PR descriptions on lockfile
+bumps. See [authoring.md](authoring.md).
+
 ---
 
 ## Mental Model
@@ -112,6 +129,7 @@ store depends on the store; nothing below depends on anything above.
 | Component | Doc | Purpose |
 |-----------|-----|---------|
 | Manifest format | [manifest.md](manifest.md) | Package shape: name, kind, tags, layers, hook ops |
+| Authoring workflow | [authoring.md](authoring.md) | `elu.toml` source format, `elu build`/`init`/`check`/`explain`/`schema` |
 | Content-addressed store | [store.md](store.md) | Object database for manifests and blobs |
 | Layers | [layers.md](layers.md) | Unpack and stack semantics |
 | Hook capability model | [hooks.md](hooks.md) | Declarative ops, `run` escape, policy, manifest-hash approvals |
@@ -137,6 +155,27 @@ default policy. The supply chain attack vector that every existing
 ecosystem has accumulated is closed by construction in the common
 case and audited-and-gated in the escape case. See
 [hooks.md](hooks.md).
+
+**Authoring is cheap, for humans and for agents.** One file at the
+project root. Build with one command. Publish with one more. No
+ritual directory layouts, no multi-file configurations, no build
+DSL. The `elu.toml` source format is the same schema as the stored
+manifest with different fields populated; an author reading a
+published manifest sees the same shape they wrote. Every CLI command
+has a `--json` mode with stable error codes so an agent can iterate
+on a generated file the same way a human does — validate, fix, re-
+validate — without parsing prose. `elu init --from <dir>` infers a
+working starter from an existing project tree, closing the "first
+package" loop in a single command. See [authoring.md](authoring.md).
+
+**elu does not build your software.** Building is whatever produces
+the files (`cargo`, `make`, `npm`, a shell script, a human). elu
+packages the files that already exist. This is a hard boundary:
+every package ecosystem that conflated build and package — every
+one — has paid for it in supply chain surface, debuggability, and
+reproducibility drift. Docker made the mistake; we are not
+repeating it. See
+[authoring.md#what-elu-is-not-a-build-system](authoring.md#what-elu-is-not-a-build-system).
 
 **Content addressing is the only identity that matters.** Names and
 versions are human-facing sugar. The store, the resolver, and every

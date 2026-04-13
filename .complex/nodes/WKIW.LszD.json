@@ -27,6 +27,10 @@
     {
       "to": "FiBu",
       "type": "blocks"
+    },
+    {
+      "to": "ehrJ",
+      "type": "blocks"
     }
   ]
 }
