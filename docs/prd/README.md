@@ -155,6 +155,131 @@ every future change.
 
 ---
 
+## Relationship to OCI
+
+Anyone who has worked with container images will notice that elu's
+layer model is very close to OCI's. That is deliberate. OCI solved
+the layered-filesystem-distribution problem well, and we are not
+going to solve it better by being different. Where elu differs is
+**what a package means**, not how layers are stored or transferred.
+
+The shortest way to describe elu to someone who knows OCI:
+
+> elu is OCI with the Image Config's runtime metadata
+> (`entrypoint`, `cmd`, `env`, `workdir`, `user`, exposed ports)
+> replaced with package-management metadata (`namespace`, `name`,
+> `version`, `kind`, `[[dependency]]`, `[hook]`, `[metadata]`).
+> Layers and the two-hash split are the same. The registry is
+> thinner. That's it.
+
+### Explicit mapping
+
+| OCI concept | elu equivalent | Notes |
+|---|---|---|
+| Layer blob (tar, gzipped or zstd) | Layer blob | Same shape. |
+| Layer's compressed digest | `blob_id` | CAS key. Hash of the stored bytes. |
+| Layer's `diff_id` (uncompressed tar hash) | `diff_id` | Same concept, same name. The manifest records this one. |
+| Image Config blob | **elu manifest** | Same role: stable identity, lists diff_ids, carries the metadata that survives recompression. Content differs — package fields instead of runtime-execution fields. |
+| Image Config digest (= "image ID") | Manifest hash (= package identity) | Stable under recompression because both sides record only diff_ids, not blob digests. |
+| Image Manifest (JSON, registry-facing, lists config digest + layer blob digests with media types) | Registry package record (the `layers` array mapping `diff_id → blob_id → url + sizes`) | Per-publication transport info. Our version is thinner — no media types, no config-vs-layer distinction, no base64-encoded nested blobs. |
+| Image Index (multi-platform "fat manifest") | **not yet** — see below | Flagged as future work. |
+| Registry (`/v2/.../manifests`, `/v2/.../blobs`) | elu registry HTTP API | Same shape. Simpler endpoints because we have fewer artifact types. See [registry.md](registry.md). |
+
+### What we kept verbatim
+
+- **The two-hash split.** `diff_id` (uncompressed tar hash) as the
+  logical identity, compressed-blob hash as the CAS key. Exactly
+  OCI's solution to "encoding should evolve without breaking
+  identity." See [manifest.md](manifest.md#diff_id-vs-blob_id) and
+  [store.md](store.md).
+- **Whiteout convention.** `.wh.<name>` to delete, `.wh..wh..opq`
+  for opaque directories. Byte-for-byte OCI compatible, so an elu
+  → OCI bridge can rewrap layers mechanically. See
+  [layers.md](layers.md).
+- **Layer order semantics.** Later layer wins on path collision.
+- **Content-addressed transport.** Every byte fetched is verified
+  against a hash declared at a higher level. A compromised
+  registry or blob host can only cause a failed fetch, never
+  content substitution.
+
+### What we dropped
+
+- **Runtime execution fields.** `entrypoint`, `cmd`, `env`,
+  `workdir`, `user`, `exposed_ports`, signal handling, health
+  checks. elu packages files; elu does not run processes.
+  Consumers (ox-runner, seguro) handle execution on top.
+- **Media types.** OCI needs them because manifests reference
+  multiple artifact types (config vs layer, compressed vs
+  uncompressed, multi-platform manifests). We have one layer type
+  and one manifest type; media types would add ceremony without
+  expressive power.
+- **OCI's manifest/config split as two distributed artifacts.**
+  OCI ships both a manifest (registry-facing) and a config
+  (identity-bearing) in the same push. We keep the package's
+  identity-bearing document (the manifest) and move the
+  transport-info document into the registry (where it's a lookup
+  result, not a distributed artifact). One fewer blob to track.
+- **The `history` array.** Optional in OCI, mostly useful for
+  `docker history` ergonomics. elu's free-form `[metadata]` table
+  can carry provenance if a publisher wants it; no first-class
+  concept.
+
+### What we added
+
+- **`namespace/name/version` inside the manifest.** OCI puts these
+  in registry tags, external to the image config. elu puts them in
+  the manifest itself because a package's identity should include
+  its intended name, not just its content. A renamed package is a
+  different package.
+- **`kind`.** An opaque string discriminator that consumers
+  dispatch on. OCI has no equivalent — an OCI image is always "a
+  container image." elu explicitly supports many consumer types
+  (skills, personas, workflows, OS bases, user-defined); `kind`
+  is how a consumer recognizes "this is for me." See
+  [consumers.md](consumers.md).
+- **`[[dependency]]` at the package level.** Packages can depend
+  on other packages, which are resolved, stacked, and
+  deduplicated transitively. OCI's only notion of "dependency" is
+  "layers," which is intra-image. Cross-image deps are an
+  external concern (`FROM` in Dockerfiles is a build-time hint
+  that doesn't survive into the image). elu treats package-level
+  deps as first-class, which is what makes it a package manager
+  and not just an image format.
+- **`[hook]`.** A single host-side command run against the
+  staging directory after the stack is assembled and before the
+  output is finalized. OCI's nearest analogue is `entrypoint`,
+  which runs at container-start time. Our hook runs at
+  *unpack* time, in the host environment, and exists for things
+  like `chmod +x bin/*` or generating a combined index file.
+- **Free-form `[metadata]`.** OCI has `annotations` for the same
+  purpose; the shape is different but the role is identical.
+
+### What we haven't decided yet
+
+- **Multi-platform.** OCI's image index solves "one tag → many
+  per-arch manifests." We need an answer for importer-produced
+  packages (`debian/curl` is arch-specific; so is any compiled
+  binary). Two plausible shapes: encode arch in the version
+  string (`@8.1.2-3+amd64`), or add an index artifact above
+  manifests that maps `(os, arch) → manifest hash`. The latter
+  is cleaner and matches OCI exactly; the former is simpler.
+  Deferred until a real workload forces the choice. See
+  [manifest.md](manifest.md).
+
+### Why the resemblance
+
+OCI got the hard parts right: content-addressed layers, the
+diff_id/blob_id split, whiteout semantics, plain HTTP transport
+with presigned blob URLs. Re-deriving any of these from first
+principles would produce something nearly identical — and would
+sacrifice the cheap bridge to OCI tooling that matters for
+adoption. The design goal of elu is to be to OCI what Cargo is
+to .tar.gz: the same underlying format, dramatically better
+ergonomics at the layer *above* the format, with a package
+manager's model of identity, deps, and metadata.
+
+---
+
 ## What elu Is Not
 
 **Not a container runtime.** elu produces filesystem trees and images.
