@@ -1,15 +1,18 @@
 {
   "id": "WKIW.ar0g",
   "title": "Importers (apt, npm, pip)",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-03-08T16:19:08.675259779Z",
-  "updated_at": "2026-04-16T20:59:45.809574817Z",
+  "updated_at": "2026-04-16T21:46:47.184948948Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW",
+  "meta": {
+    "_reason": "review passed"
+  },
   "edges": [
     {
       "to": "WKIW.lMYk",
