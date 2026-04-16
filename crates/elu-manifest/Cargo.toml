@@ -1,0 +1,13 @@
+[package]
+name = "elu-manifest"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elu-store = { path = "../elu-store" }
+globset = "0.4"
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+toml = "0.8"

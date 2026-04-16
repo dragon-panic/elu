@@ -1,6 +1,8 @@
 use std::fmt;
 use std::str::FromStr;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
 /// Algorithm tag in the canonical `<algo>:<hex>` prefix.
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub enum HashAlgo {
@@ -87,6 +89,19 @@ impl FromStr for Hash {
     }
 }
 
+impl Serialize for Hash {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Hash {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 /// Hash of the uncompressed tar bytes. Stable identity for a layer.
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct DiffId(pub Hash);
@@ -101,6 +116,19 @@ impl FromStr for DiffId {
     type Err = HashParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(DiffId(s.parse()?))
+    }
+}
+
+impl Serialize for DiffId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for DiffId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }
 
@@ -121,6 +149,19 @@ impl FromStr for BlobId {
     }
 }
 
+impl Serialize for BlobId {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for BlobId {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 /// Hash of a manifest (always uncompressed, so blob_id == diff_id).
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub struct ManifestHash(pub Hash);
@@ -135,5 +176,18 @@ impl FromStr for ManifestHash {
     type Err = HashParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(ManifestHash(s.parse()?))
+    }
+}
+
+impl Serialize for ManifestHash {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for ManifestHash {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
     }
 }

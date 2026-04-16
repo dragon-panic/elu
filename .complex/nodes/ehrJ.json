@@ -1,11 +1,11 @@
 {
   "id": "ehrJ",
   "title": "Authoring workflow",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-13T02:28:05.048436190Z",
-  "updated_at": "2026-04-16T20:03:00.181099145Z",
+  "updated_at": "2026-04-16T20:59:45.809574977Z",
   "tags": [
     "workflow:code-task"
   ],
