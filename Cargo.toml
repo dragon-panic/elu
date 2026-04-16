@@ -1,3 +1,7 @@
+[workspace]
+members = ["crates/elu-store"]
+resolver = "3"
+
 [package]
 name = "elu"
 version = "0.1.0"
