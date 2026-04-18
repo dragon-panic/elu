@@ -51,6 +51,7 @@ pub fn build_manifest(params: ManifestParams) -> Result<Manifest, String> {
             strip: None,
             place: None,
             mode: None,
+            follow_symlinks: false,
         }],
         dependencies: deps,
         hook: Hook::default(),

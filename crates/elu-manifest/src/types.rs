@@ -63,6 +63,13 @@ pub struct Layer {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub follow_symlinks: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 impl Layer {

@@ -1,0 +1,20 @@
+schema = 1
+
+[package]
+namespace   = "{{namespace}}"
+name        = "{{name}}"
+version     = "0.1.0"
+kind        = "native"
+description = "TODO: one-line description"
+
+# include is opt-in — name what you want to ship.
+# [[layer]]
+# name    = "bin"
+# include = ["target/release/{{name}}"]
+# strip   = "target/release/"
+# place   = "bin/"
+
+# [[hook.op]]
+# type  = "chmod"
+# paths = ["bin/*"]
+# mode  = "+x"

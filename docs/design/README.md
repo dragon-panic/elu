@@ -43,7 +43,7 @@ lists its PRD counterpart at the top.
 | outputs.md *(todo)* | [../prd/outputs.md](../prd/outputs.md) | `elu-outputs`: dir/tar/qcow2 materializers |
 | registry.md *(todo)* | [../prd/registry.md](../prd/registry.md) | `elu-registry`: async HTTP client + minimal server |
 | cli.md *(todo)* | [../prd/cli.md](../prd/cli.md) | `elu-cli`: clap structure, `--json` envelope, error codes |
-| authoring.md *(todo)* | [../prd/authoring.md](../prd/authoring.md) | The `elu build`/`init`/`check`/`explain` pipeline |
+| [authoring.md](authoring.md) | [../prd/authoring.md](../prd/authoring.md) | `elu-author`: build/init/check/explain/schema pipeline, error codes |
 | seguro.md *(todo)* | [../prd/seguro.md](../prd/seguro.md) | qcow2 handoff surface |
 | consumers.md *(todo)* | [../prd/consumers.md](../prd/consumers.md) | Read-only store-access patterns for consumer tools |
 

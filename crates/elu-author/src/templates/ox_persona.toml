@@ -1,0 +1,17 @@
+schema = 1
+
+[package]
+namespace   = "{{namespace}}"
+name        = "{{name}}"
+version     = "0.1.0"
+kind        = "ox-persona"
+description = "TODO: one-line description"
+
+[[layer]]
+name    = "persona"
+include = ["persona.md"]
+place   = "share/ox/personas/{{name}}/"
+
+[metadata.ox]
+runtime = "claude"
+model   = "sonnet"

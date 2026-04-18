@@ -1,0 +1,27 @@
+schema = 1
+
+[package]
+namespace   = "{{namespace}}"
+name        = "{{name}}"
+version     = "0.1.0"
+kind        = "ox-skill"
+description = "TODO: one-line description"
+
+[[layer]]
+name    = "bin"
+include = ["dist/{{name}}"]
+strip   = "dist/"
+place   = "bin/"
+
+[[layer]]
+name    = "instructions"
+include = ["SKILL.md"]
+place   = "share/ox/skills/{{name}}/"
+
+[[hook.op]]
+type  = "chmod"
+paths = ["bin/*"]
+mode  = "+x"
+
+[metadata.ox]
+requires = { network = ["*"] }

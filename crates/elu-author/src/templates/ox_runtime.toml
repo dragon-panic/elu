@@ -1,0 +1,13 @@
+schema = 1
+
+[package]
+namespace   = "{{namespace}}"
+name        = "{{name}}"
+version     = "0.1.0"
+kind        = "ox-runtime"
+description = "TODO: one-line description"
+
+[[layer]]
+name    = "runtime"
+include = ["runtime.toml"]
+place   = "share/ox/runtimes/{{name}}/"

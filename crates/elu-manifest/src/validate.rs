@@ -24,6 +24,7 @@ pub fn validate_stored(m: &Manifest) -> Result<(), ManifestError> {
             || layer.strip.is_some()
             || layer.place.is_some()
             || layer.mode.is_some()
+            || layer.follow_symlinks
         {
             return Err(ManifestError::MixedLayerForm { index: i });
         }
