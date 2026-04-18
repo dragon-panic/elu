@@ -122,6 +122,59 @@ impl RegistryClient {
     pub fn registries(&self) -> &[Url] {
         &self.registries
     }
+
+    /// Search the registry index. Tries each registry in order.
+    pub async fn search(
+        &self,
+        query: &crate::types::SearchQuery,
+    ) -> Result<crate::types::SearchResponse, RegistryError> {
+        let mut last_err = RegistryError::InvalidManifest {
+            reason: "no registries configured".into(),
+        };
+        for base in &self.registries {
+            let mut url = base
+                .join("api/v1/search")
+                .map_err(|e| RegistryError::BlobBackend(e.to_string()))?;
+            {
+                let mut q = url.query_pairs_mut();
+                if let Some(s) = &query.q {
+                    q.append_pair("q", s);
+                }
+                if let Some(s) = &query.kind {
+                    q.append_pair("kind", s);
+                }
+                if let Some(s) = &query.tag {
+                    q.append_pair("tag", s);
+                }
+                if let Some(s) = &query.namespace {
+                    q.append_pair("namespace", s);
+                }
+            }
+            match self.http.get(url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    return resp
+                        .json()
+                        .await
+                        .map_err(|e| RegistryError::InvalidManifest {
+                            reason: format!("search response: {e}"),
+                        });
+                }
+                Ok(resp) => {
+                    last_err = RegistryError::BlobBackend(format!(
+                        "registry returned status {}",
+                        resp.status()
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    last_err =
+                        RegistryError::BlobBackend(format!("failed to connect to registry: {e}"));
+                    continue;
+                }
+            }
+        }
+        Err(last_err)
+    }
 }
 
 #[cfg(test)]

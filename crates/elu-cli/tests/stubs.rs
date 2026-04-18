@@ -1,0 +1,111 @@
+use assert_cmd::Command;
+
+fn assert_stub(args: &[&str], dep_marker: &str) {
+    let out = Command::cargo_bin("elu").unwrap().args(args).output().unwrap();
+    assert!(!out.status.success(), "{args:?} should fail until dispatch lands");
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "{args:?} should exit 1 (generic) — got: {:?}",
+        out.status.code()
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(
+        stderr.contains("not yet implemented"),
+        "{args:?} stub message missing 'not yet implemented': {stderr}"
+    );
+    assert!(
+        stderr.contains(dep_marker),
+        "{args:?} stub message missing depends-on marker '{dep_marker}': {stderr}"
+    );
+}
+
+#[test]
+fn install_is_stub() {
+    assert_stub(&["install", "ns/pkg"], "WKIW.wX0h");
+}
+
+#[test]
+fn add_is_stub() {
+    assert_stub(&["add", "ns/pkg"], "WKIW.wX0h");
+}
+
+#[test]
+fn remove_is_stub() {
+    assert_stub(&["remove", "ns/pkg"], "WKIW.wX0h");
+}
+
+#[test]
+fn lock_is_stub() {
+    assert_stub(&["lock"], "WKIW.wX0h");
+}
+
+#[test]
+fn update_is_stub() {
+    assert_stub(&["update"], "WKIW.wX0h");
+}
+
+#[test]
+fn stack_is_stub() {
+    assert_stub(&["stack", "ns/pkg", "-o", "/tmp/out"], "WKIW.zRCQ");
+}
+
+#[test]
+fn audit_is_stub() {
+    assert_stub(&["audit"], "WKIW.wX0h");
+}
+
+#[test]
+fn policy_show_is_stub() {
+    assert_stub(&["policy", "show"], "policy");
+}
+
+#[test]
+fn policy_check_is_stub() {
+    assert_stub(&["policy", "check", "ns/pkg"], "policy");
+}
+
+#[test]
+fn install_help_lists_output_flag() {
+    let assert = Command::cargo_bin("elu")
+        .unwrap()
+        .args(["install", "--help"])
+        .assert()
+        .success();
+    let s = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(s.contains("-o") || s.contains("--out"), "install --help missing -o/--out: {s}");
+}
+
+#[test]
+fn stack_requires_output_flag_exits_two() {
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["stack", "ns/pkg"])
+        .assert()
+        .failure()
+        .code(2);
+}
+
+#[test]
+fn audit_help_lists_fail_on_flag() {
+    let assert = Command::cargo_bin("elu")
+        .unwrap()
+        .args(["audit", "--help"])
+        .assert()
+        .success();
+    let s = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(s.contains("--fail-on"), "audit --help missing --fail-on: {s}");
+}
+
+#[test]
+fn policy_help_lists_subcommands() {
+    let assert = Command::cargo_bin("elu")
+        .unwrap()
+        .args(["policy", "--help"])
+        .assert()
+        .success();
+    let s = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    for sub in ["show", "check", "allow", "deny", "revoke", "set"] {
+        assert!(s.contains(sub), "policy --help missing {sub}: {s}");
+    }
+}
