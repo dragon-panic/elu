@@ -1,0 +1,19 @@
+[package]
+name = "elu-resolver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elu-manifest = { path = "../elu-manifest" }
+elu-store = { path = "../elu-store" }
+elu-registry = { path = "../elu-registry" }
+
+semver = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+thiserror = "2"
+url = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }
+bytes = "1"

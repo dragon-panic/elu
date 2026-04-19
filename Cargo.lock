@@ -615,6 +615,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "elu-resolver"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "elu-manifest",
+ "elu-registry",
+ "elu-store",
+ "semver",
+ "serde",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "url",
+]
+
+[[package]]
 name = "elu-store"
 version = "0.1.0"
 dependencies = [
