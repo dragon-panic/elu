@@ -18,6 +18,7 @@ pub mod publish;
 pub mod refs;
 pub mod schema;
 pub mod search;
+pub mod stack;
 pub mod stub;
 
 pub fn dispatch(cli: Cli) -> Result<(), CliError> {
@@ -28,7 +29,7 @@ pub fn dispatch(cli: Cli) -> Result<(), CliError> {
         Command::Remove(a) => stub::run("remove", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Lock(a) => stub::run("lock", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Update(a) => stub::run("update", "WKIW.wX0h", "resolver", &ctx, a),
-        Command::Stack(a) => stub::run("stack", "WKIW.zRCQ", "stacker", &ctx, a),
+        Command::Stack(a) => stack::run(&ctx, a),
         Command::Audit(a) => stub::run("audit", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Policy(a) => stub::run("policy", "TBD", "policy crate", &ctx, a),
         Command::Init(a) => init::run(&ctx, a),

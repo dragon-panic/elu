@@ -46,8 +46,29 @@ fn update_is_stub() {
 }
 
 #[test]
-fn stack_is_stub() {
-    assert_stub(&["stack", "ns/pkg", "-o", "/tmp/out"], "WKIW.zRCQ");
+fn stack_resolution_error_when_ref_not_in_store() {
+    // No matching ref in a fresh store; resolver fails fast.
+    let store = tempfile::TempDir::new().unwrap();
+    let out_dir = tempfile::TempDir::new().unwrap();
+    let out = out_dir.path().join("stacked");
+    let result = Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "stack",
+            "ns/pkg@1.0.0",
+            "-o",
+            out.to_str().unwrap(),
+        ])
+        .assert()
+        .failure();
+    let code = result.get_output().status.code();
+    assert_eq!(
+        code,
+        Some(3),
+        "should exit 3 (resolution); got {code:?}"
+    );
 }
 
 #[test]

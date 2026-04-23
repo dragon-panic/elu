@@ -11,14 +11,17 @@ path = "src/main.rs"
 elu-author = { path = "../elu-author" }
 elu-hooks = { path = "../elu-hooks" }
 elu-import = { path = "../elu-import" }
+elu-layers = { path = "../elu-layers" }
 elu-manifest = { path = "../elu-manifest" }
 elu-registry = { path = "../elu-registry" }
+elu-resolver = { path = "../elu-resolver" }
 elu-store = { path = "../elu-store" }
 
 camino = "1"
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 dirs = "5"
+semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
