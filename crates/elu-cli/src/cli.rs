@@ -153,11 +153,55 @@ pub struct StackArgs {
     #[arg(short = 'o', long, required = true)]
     pub out: Utf8PathBuf,
     /// Override format (otherwise inferred from path).
-    #[arg(long)]
-    pub format: Option<String>,
+    #[arg(long, value_enum)]
+    pub format: Option<OutputFormat>,
     /// Base image for qcow2/raw outputs.
     #[arg(long)]
     pub base: Option<String>,
+    /// dir: replace a pre-existing target.
+    #[arg(long)]
+    pub force: bool,
+    /// dir: `uid:gid` to rewrite ownership after materializing.
+    #[arg(long, value_name = "UID:GID")]
+    pub owner: Option<String>,
+    /// dir: octal mode mask applied to all entries (e.g. 755).
+    #[arg(long, value_name = "OCTAL")]
+    pub mode: Option<String>,
+    /// tar: compression applied to the stream.
+    #[arg(long, value_enum)]
+    pub compress: Option<CompressionKind>,
+    /// tar: compression level (format-specific).
+    #[arg(long)]
+    pub level: Option<i32>,
+    /// tar: disable deterministic tar (keeps real mtime/uid/gid).
+    #[arg(long = "no-deterministic", action = ArgAction::SetTrue)]
+    pub no_deterministic: bool,
+    /// qcow2: target disk size in bytes (default: fit + 20%).
+    #[arg(long)]
+    pub size: Option<u64>,
+    /// qcow2: on-disk qcow2 version (default: 3).
+    #[arg(long)]
+    pub format_version: Option<u32>,
+    /// qcow2: skip guest finalization (image may not boot).
+    #[arg(long)]
+    pub no_finalize: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub enum OutputFormat {
+    Dir,
+    Tar,
+    Qcow2,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+#[clap(rename_all = "lower")]
+pub enum CompressionKind {
+    None,
+    Gzip,
+    Zstd,
+    Xz,
 }
 
 #[derive(Debug, clap::Args)]

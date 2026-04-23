@@ -1,0 +1,21 @@
+[package]
+name = "elu-outputs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+elu-manifest = { path = "../elu-manifest" }
+
+camino = "1"
+toml = "0.8"
+flate2 = "1"
+tar = "0.4"
+tempfile = "3"
+thiserror = "2"
+xz2 = "0.1"
+zstd = "0.13"
+
+[dev-dependencies]
+semver = "1"
+tempfile = "3"
+toml = "0.8"

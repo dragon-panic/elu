@@ -532,6 +532,7 @@ dependencies = [
  "elu-import",
  "elu-layers",
  "elu-manifest",
+ "elu-outputs",
  "elu-registry",
  "elu-resolver",
  "elu-store",
@@ -612,6 +613,22 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "toml",
+]
+
+[[package]]
+name = "elu-outputs"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "elu-manifest",
+ "flate2",
+ "semver",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
+ "xz2",
+ "zstd",
 ]
 
 [[package]]

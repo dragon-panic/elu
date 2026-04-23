@@ -27,6 +27,50 @@ pub fn flatten(resolution: &Resolution) -> &[DiffId] {
     &resolution.layers
 }
 
+/// Apply each layer from `resolution` into a fresh staging directory rooted
+/// under `parent_dir`, then run the post-unpack hook. On any error the
+/// staging directory is cleaned up and the error is returned.
+///
+/// The returned [`Staging`] is an RAII handle: dropping it deletes the
+/// staging tree. Call [`Staging::into_path`] to disarm the drop guard and
+/// take ownership of the staging path (the caller then owns cleanup).
+///
+/// `stage` never mutates a final target; it is the building block for
+/// materialization.
+pub fn stage(
+    store: &dyn Store,
+    resolution: &Resolution,
+    parent_dir: &Utf8Path,
+    hook_mode: HookMode,
+) -> Result<(Staging, StackStats), LayerError> {
+    let staging = Staging::create(parent_dir)?;
+    let mut stats = StackStats::default();
+    for diff_id in &resolution.layers {
+        let s = apply(store, diff_id, staging.path())?;
+        stats.apply += s;
+        stats.layers += 1;
+    }
+    // PRD: hook runs once, after all layers applied, before finalize.
+    // Hook ops come from the root manifest (the entry the resolver was
+    // asked about), which is the first ResolvedManifest by convention.
+    if let Some(root) = resolution.manifests.first()
+        && !root.manifest.hook.ops.is_empty()
+    {
+        let pkg = root.package.as_str();
+        let (ns, name) = pkg.split_once('/').unwrap_or(("", pkg));
+        let version = root.manifest.package.version.to_string();
+        let pkg_ctx = PackageContext {
+            namespace: ns,
+            name,
+            version: &version,
+            kind: &root.manifest.package.kind,
+        };
+        let runner = HookRunner::new(staging.path(), &pkg_ctx, hook_mode);
+        stats.hook = runner.run(&root.manifest.hook.ops)?;
+    }
+    Ok((staging, stats))
+}
+
 /// Apply each layer from `resolution` into `target` in manifest order, run
 /// the post-unpack hook, then atomically rename the staged tree into place.
 /// On any error the staging directory is cleaned and `target` is left
@@ -50,64 +94,30 @@ pub fn stack(
         remove_target(target)?;
     }
 
-    let staging = Staging::create(target)?;
-    let result = (|| -> Result<StackStats, LayerError> {
-        let mut stats = StackStats::default();
-        for diff_id in &resolution.layers {
-            let s = apply(store, diff_id, staging.path())?;
-            stats.apply += s;
-            stats.layers += 1;
-        }
-        // PRD: hook runs once, after all layers applied, before finalize.
-        // Hook ops come from the root manifest (the entry the resolver was
-        // asked about), which is the first ResolvedManifest by convention.
-        if let Some(root) = resolution.manifests.first()
-            && !root.manifest.hook.ops.is_empty()
-        {
-            let pkg = root.package.as_str();
-            let (ns, name) = pkg.split_once('/').unwrap_or(("", pkg));
-            let version = root.manifest.package.version.to_string();
-            let pkg_ctx = PackageContext {
-                namespace: ns,
-                name,
-                version: &version,
-                kind: &root.manifest.package.kind,
-            };
-            let runner = HookRunner::new(staging.path(), &pkg_ctx, hook_mode);
-            stats.hook = runner.run(&root.manifest.hook.ops)?;
-        }
-        Ok(stats)
-    })();
-
-    match result {
-        Ok(stats) => {
-            staging.finalize(target)?;
-            Ok(stats)
-        }
-        Err(e) => Err(e),
-    }
+    let parent = target_parent(target);
+    fs::create_dir_all(parent.as_std_path()).map_err(LayerError::Staging)?;
+    let (staging, stats) = stage(store, resolution, &parent, hook_mode)?;
+    staging.finalize(target)?;
+    Ok(stats)
 }
 
-/// Staging directory rooted next to `target` so a successful finalize is an
-/// atomic rename on the same filesystem.
-struct Staging {
+/// RAII handle for a staging directory. Dropping cleans the tree; call
+/// [`Staging::into_path`] to take ownership (cleanup is the caller's job).
+pub struct Staging {
     path: Utf8PathBuf,
     armed: bool,
 }
 
 impl Staging {
-    fn create(target: &Utf8Path) -> Result<Self, LayerError> {
-        let parent = match target.parent() {
-            Some(p) if !p.as_str().is_empty() => p.to_path_buf(),
-            _ => Utf8PathBuf::from("."),
+    fn create(parent: &Utf8Path) -> Result<Self, LayerError> {
+        let parent = if parent.as_str().is_empty() {
+            Utf8PathBuf::from(".")
+        } else {
+            parent.to_path_buf()
         };
         fs::create_dir_all(parent.as_std_path()).map_err(LayerError::Staging)?;
-        let prefix = format!(
-            ".{}.staging.",
-            target.file_name().unwrap_or("elu-stack")
-        );
         let tmp = tempfile::Builder::new()
-            .prefix(&prefix)
+            .prefix(".elu-stage.")
             .tempdir_in(parent.as_std_path())
             .map_err(LayerError::Staging)?;
         let path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf())
@@ -117,11 +127,20 @@ impl Staging {
         Ok(Staging { path, armed: true })
     }
 
-    fn path(&self) -> &Utf8Path {
+    /// Path to the staging root.
+    pub fn path(&self) -> &Utf8Path {
         &self.path
     }
 
-    fn finalize(mut self, target: &Utf8Path) -> Result<(), LayerError> {
+    /// Disarm the drop guard and return the staging path. Caller owns cleanup.
+    pub fn into_path(mut self) -> Utf8PathBuf {
+        self.armed = false;
+        std::mem::take(&mut self.path)
+    }
+
+    /// Rename the staging directory onto `target`. Staging must be on the
+    /// same filesystem as `target`'s parent.
+    pub fn finalize(mut self, target: &Utf8Path) -> Result<(), LayerError> {
         fs::rename(self.path.as_std_path(), target.as_std_path())?;
         self.armed = false;
         Ok(())
@@ -133,6 +152,13 @@ impl Drop for Staging {
         if self.armed {
             let _ = fs::remove_dir_all(self.path.as_std_path());
         }
+    }
+}
+
+fn target_parent(target: &Utf8Path) -> Utf8PathBuf {
+    match target.parent() {
+        Some(p) if !p.as_str().is_empty() => p.to_path_buf(),
+        _ => Utf8PathBuf::from("."),
     }
 }
 

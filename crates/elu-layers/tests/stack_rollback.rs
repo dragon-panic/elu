@@ -73,13 +73,8 @@ fn failed_hook_rolls_back_target_untouched() {
     let leftover: Vec<_> = std::fs::read_dir(parent.as_std_path())
         .unwrap()
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .starts_with(".out.staging.")
-        })
         .collect();
-    assert!(leftover.is_empty(), "staging not cleaned: {leftover:?}");
+    assert!(leftover.is_empty(), "parent dir not cleaned: {leftover:?}");
 }
 
 #[test]

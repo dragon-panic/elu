@@ -13,6 +13,7 @@ elu-hooks = { path = "../elu-hooks" }
 elu-import = { path = "../elu-import" }
 elu-layers = { path = "../elu-layers" }
 elu-manifest = { path = "../elu-manifest" }
+elu-outputs = { path = "../elu-outputs" }
 elu-registry = { path = "../elu-registry" }
 elu-resolver = { path = "../elu-resolver" }
 elu-store = { path = "../elu-store" }

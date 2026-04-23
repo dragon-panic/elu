@@ -92,7 +92,29 @@ elu stack ox-community/postgres-query -o skill.tar.zst
 elu stack ox-runner-image -o runner.qcow2 --base debian/bookworm-minbase
 ```
 
-See [outputs.md](outputs.md) for format-specific options.
+Format-specific options:
+
+| Flag | Applies to | Effect |
+|------|------------|--------|
+| `--format {dir,tar,qcow2}` | all | Overrides suffix inference. |
+| `--force` | all | Replace an existing target. |
+| `--owner UID:GID` | dir | Rewrite ownership after materializing. |
+| `--mode OCTAL` | dir | Apply an octal mask (e.g. `755`) to all entries. |
+| `--compress {none,gzip,zstd,xz}` | tar | Streaming compression. Default: inferred from suffix (`.tar.gz`, `.tar.zst`, `.tar.xz`), else `none`. |
+| `--level N` | tar | Format-specific compression level. |
+| `--no-deterministic` | tar | Keep real mtime/uid/gid. Default is deterministic (mtime = 0, uid/gid = 0) for byte-reproducibility. |
+| `--base REF` | qcow2 | Required. An `os-base` package reference. |
+| `--size BYTES` | qcow2 | Target disk size. Default: fit + 20%. |
+| `--format-version N` | qcow2 | qcow2 on-disk version. Default: 3. |
+| `--no-finalize` | qcow2 | Skip guest finalize. Image may not boot. |
+
+qcow2 output shells out to `mke2fs` and `qemu-img`; both must be on
+`PATH`. Guest finalize additionally requires either `fuse2fs` (for
+unprivileged chroot) or `qemu-system-<arch>` (for cross-arch or when
+fuse2fs is not available). Missing tools surface as a clear error at
+stack time.
+
+See [outputs.md](outputs.md) for the underlying contract.
 
 ### `elu init`
 

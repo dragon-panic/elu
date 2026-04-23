@@ -9,4 +9,4 @@ pub mod whiteout;
 
 pub use apply::{ApplyStats, apply};
 pub use error::LayerError;
-pub use stack::{StackStats, flatten, stack};
+pub use stack::{Staging, StackStats, flatten, stack, stage};
