@@ -1,15 +1,18 @@
 {
   "id": "7u2u",
   "title": "CLI publish dispatch",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-24T22:23:10.824272869Z",
-  "updated_at": "2026-04-24T22:38:53.065500686Z",
+  "updated_at": "2026-04-24T22:49:02.905601961Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "hnkX",
+  "meta": {
+    "_reason": "CLI publish dispatch green; unblocks SnIt round-trip"
+  },
   "edges": [
     {
       "to": "SnIt",
