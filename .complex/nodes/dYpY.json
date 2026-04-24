@@ -1,11 +1,11 @@
 {
   "id": "dYpY",
   "title": "Determinism tests (manifest hash + tar byte-identity)",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-24T21:42:34.840337628Z",
-  "updated_at": "2026-04-24T21:42:34.840337628Z",
+  "updated_at": "2026-04-24T21:58:38.758597348Z",
   "tags": [
     "workflow:code-task"
   ],
