@@ -1,0 +1,22 @@
+{
+  "id": "GjSE",
+  "title": "Retrofit client_publish test to build via elu_author::build",
+  "state": "ready",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-24T23:16:58.706917502Z",
+  "updated_at": "2026-04-24T23:18:03.128395197Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "WfTG",
+  "meta": {
+    "_reason": "round-trip cleanup arc filed; 6zSs and GjSE independent and ready"
+  },
+  "edges": [
+    {
+      "to": "ccUO",
+      "type": "blocks"
+    }
+  ]
+}
