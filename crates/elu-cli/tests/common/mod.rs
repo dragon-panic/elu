@@ -19,7 +19,10 @@ pub struct Env {
 impl Env {
     /// Fresh project and store tmpdirs. Each `Env` is fully isolated.
     pub fn new() -> Self {
-        todo!("Env::new — create two TempDirs")
+        Self {
+            project: TempDir::new().expect("create project tmpdir"),
+            store: TempDir::new().expect("create store tmpdir"),
+        }
     }
 
     pub fn project_path(&self) -> &Path {
@@ -31,20 +34,43 @@ impl Env {
     }
 
     /// `elu --store <store> <args...>`. No cwd is set.
-    pub fn elu(&self, _args: &[&str]) -> Command {
-        todo!("Env::elu — build assert_cmd::Command with --store prepended")
+    pub fn elu(&self, args: &[&str]) -> Command {
+        let mut cmd = Command::cargo_bin("elu").expect("cargo_bin elu");
+        cmd.arg("--store").arg(self.store.path()).args(args);
+        cmd
     }
 
     /// Same as `elu`, with cwd = project path. For subcommands like `build`
     /// that read `./elu.toml`.
-    pub fn elu_in_project(&self, _args: &[&str]) -> Command {
-        todo!("Env::elu_in_project — like elu but current_dir=project")
+    pub fn elu_in_project(&self, args: &[&str]) -> Command {
+        let mut cmd = self.elu(args);
+        cmd.current_dir(self.project.path());
+        cmd
     }
 
     /// Run `elu --store <store> --json <args...>` with cwd = project.
     /// Parse the LAST stdout line as JSON and return it (the `done` event).
-    pub fn elu_json_done(&self, _args: &[&str]) -> serde_json::Value {
-        todo!("Env::elu_json_done — run with --json, parse last stdout line")
+    pub fn elu_json_done(&self, args: &[&str]) -> serde_json::Value {
+        let mut cmd = Command::cargo_bin("elu").expect("cargo_bin elu");
+        cmd.arg("--store")
+            .arg(self.store.path())
+            .arg("--json")
+            .args(args)
+            .current_dir(self.project.path());
+        let out = cmd.output().expect("run elu");
+        assert!(
+            out.status.success(),
+            "elu failed: args={args:?}\nstdout={}\nstderr={}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr),
+        );
+        let stdout = std::str::from_utf8(&out.stdout).expect("elu stdout utf-8");
+        let last = stdout
+            .lines()
+            .last()
+            .unwrap_or_else(|| panic!("elu produced no stdout lines; args={args:?}"));
+        serde_json::from_str(last)
+            .unwrap_or_else(|e| panic!("last stdout line is not JSON: {last:?} ({e})"))
     }
 }
 
@@ -55,6 +81,23 @@ impl Env {
 ///
 /// Overwrites any existing files. Safe to call after `init` to replace the
 /// scaffolded manifest.
-pub fn tiny_fixture(_env: &Env) {
-    todo!("tiny_fixture — write elu.toml + layers/files/hello.txt")
+pub fn tiny_fixture(env: &Env) {
+    const MANIFEST: &str = r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "demo"
+version     = "0.1.0"
+kind        = "native"
+description = "happy-path fixture"
+
+[[layer]]
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
+"#;
+    std::fs::write(env.project_path().join("elu.toml"), MANIFEST).expect("write elu.toml");
+    let layer_dir = env.project_path().join("layers/files");
+    std::fs::create_dir_all(&layer_dir).expect("mkdir layers/files");
+    std::fs::write(layer_dir.join("hello.txt"), "hi").expect("write hello.txt");
 }
