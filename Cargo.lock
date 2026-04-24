@@ -523,6 +523,7 @@ name = "elu-cli"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
+ "axum",
  "camino",
  "clap",
  "clap_complete",
@@ -536,6 +537,7 @@ dependencies = [
  "elu-registry",
  "elu-resolver",
  "elu-store",
+ "http-body-util",
  "predicates",
  "semver",
  "serde",
@@ -544,6 +546,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "url",
 ]
 
 [[package]]

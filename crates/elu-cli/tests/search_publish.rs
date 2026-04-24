@@ -48,19 +48,21 @@ fn publish_help_lists_reference_arg() {
 }
 
 #[test]
-fn publish_reports_not_yet_implemented() {
-    // publish dispatch depends on registry-client publish protocol which
-    // exceeds the proposal's 60-LOC scope cap; CLI surface is wired and
-    // returns a clear error.
+fn publish_requires_token() {
+    // publish dispatch needs --token (or ELU_PUBLISH_TOKEN). Without it we
+    // expect a clear usage error (exit 2), not a panic.
     let out = Command::cargo_bin("elu")
         .unwrap()
+        .env_remove("ELU_PUBLISH_TOKEN")
         .args(["publish", "ns/pkg@1.0.0"])
         .output()
         .unwrap();
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    assert!(
-        stderr.contains("publish") && (stderr.contains("not yet implemented") || stderr.contains("not implemented")),
-        "expected stub message on stderr: {stderr}"
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected usage exit 2; stderr: {}",
+        String::from_utf8_lossy(&out.stderr),
     );
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    assert!(stderr.contains("token"), "expected token mention; stderr: {stderr}");
 }

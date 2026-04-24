@@ -288,6 +288,9 @@ pub struct PublishArgs {
     /// Package reference to publish (namespace/name@version).
     #[arg(required = true)]
     pub reference: String,
+    /// Bearer token used to authenticate the publish.
+    #[arg(long, value_name = "TOKEN", env = "ELU_PUBLISH_TOKEN")]
+    pub token: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
