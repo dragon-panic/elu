@@ -21,11 +21,6 @@ fn assert_stub(args: &[&str], dep_marker: &str) {
 }
 
 #[test]
-fn install_is_stub() {
-    assert_stub(&["install", "ns/pkg"], "WKIW.wX0h");
-}
-
-#[test]
 fn add_is_stub() {
     assert_stub(&["add", "ns/pkg"], "WKIW.wX0h");
 }

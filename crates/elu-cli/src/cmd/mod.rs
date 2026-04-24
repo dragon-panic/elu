@@ -13,6 +13,7 @@ pub mod gc;
 pub mod import;
 pub mod init;
 pub mod inspect;
+pub mod install;
 pub mod ls;
 pub mod publish;
 pub mod refs;
@@ -24,7 +25,7 @@ pub mod stub;
 pub fn dispatch(cli: Cli) -> Result<(), CliError> {
     let ctx = GlobalCtx::from_args(&cli.global);
     let result = match cli.command {
-        Command::Install(a) => stub::run("install", "WKIW.wX0h", "resolver", &ctx, a),
+        Command::Install(a) => install::run(&ctx, a),
         Command::Add(a) => stub::run("add", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Remove(a) => stub::run("remove", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Lock(a) => stub::run("lock", "WKIW.wX0h", "resolver", &ctx, a),
