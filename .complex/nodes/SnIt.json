@@ -1,0 +1,13 @@
+{
+  "id": "SnIt",
+  "title": "CLI install dispatch + round-trip integration test",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-24T22:24:05.512307065Z",
+  "updated_at": "2026-04-24T22:24:05.512307065Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "hnkX"
+}

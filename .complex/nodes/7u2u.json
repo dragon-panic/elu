@@ -1,0 +1,19 @@
+{
+  "id": "7u2u",
+  "title": "CLI publish dispatch",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-24T22:23:10.824272869Z",
+  "updated_at": "2026-04-24T22:23:10.824272869Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "hnkX",
+  "edges": [
+    {
+      "to": "SnIt",
+      "type": "blocks"
+    }
+  ]
+}

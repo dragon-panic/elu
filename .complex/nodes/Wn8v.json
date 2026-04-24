@@ -1,0 +1,22 @@
+{
+  "id": "Wn8v",
+  "title": "Client publish library (elu-registry::client::publish)",
+  "state": "ready",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-24T22:22:46.013825336Z",
+  "updated_at": "2026-04-24T22:24:09.726956196Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "hnkX",
+  "meta": {
+    "_reason": "round-trip feature arc: approved, slice 1 ready"
+  },
+  "edges": [
+    {
+      "to": "7u2u",
+      "type": "blocks"
+    }
+  ]
+}
