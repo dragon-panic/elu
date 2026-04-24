@@ -1,0 +1,7 @@
+[
+  {
+    "timestamp": "2026-04-24T22:05:29.881146511Z",
+    "author": "claude",
+    "body": "Both tests passed on first run. Pipeline already normalizes mtime (epoch 0), uid/gid (0/0), and file mode — byte-determinism contract is already honored upstream. No separate pipeline-fix task needed."
+  }
+]

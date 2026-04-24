@@ -1,16 +1,16 @@
 {
   "id": "iLGQ",
   "title": "Integration test foundation — E2E fast tier",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-24T21:39:13.273287730Z",
-  "updated_at": "2026-04-24T21:44:48.972594856Z",
+  "updated_at": "2026-04-24T22:05:21.100403786Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW",
   "meta": {
-    "_reason": "approved by user — starting slice 1"
+    "_reason": "fast-tier foundation shipped: common helper + happy-path + determinism"
   }
 }
