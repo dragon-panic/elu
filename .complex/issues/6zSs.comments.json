@@ -1,0 +1,7 @@
+[
+  {
+    "timestamp": "2026-04-24T23:20:19.238224979Z",
+    "author": "claude",
+    "body": "router placement: own listener — backend exposes Router via LocalBlobBackend::router(); callers spawn whatever listener fits. Matches PRD 'presigned URLs to anywhere' model, keeps AppState/server::router untouched, and tests can keep their existing 'separate-listener' shape (just dropping their inline handlers)."
+  }
+]

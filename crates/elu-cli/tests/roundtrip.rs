@@ -5,23 +5,13 @@
 //! registry, then install it from a *fresh* subscriber store, and assert the
 //! materialized output matches the publisher's source.
 
-use std::collections::HashMap;
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use assert_cmd::Command;
-use axum::Router;
-use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::response::Response;
-use axum::routing::put;
-use elu_registry::blob_store::BlobBackend;
+use elu_registry::blob_store::{BlobBackend, LocalBlobBackend};
 use elu_registry::db::SqliteRegistryDb;
-use elu_registry::error::RegistryError;
 use elu_registry::server::{AppState, router};
-use elu_store::hash::BlobId;
-use http_body_util::BodyExt;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
@@ -47,110 +37,15 @@ fn make_project(tmp: &TempDir) {
     fs::write(tmp.path().join("layers/files/hello.txt"), "hi").unwrap();
 }
 
-/// A blob backend that stores bytes in memory, so the same HTTP server can
-/// serve them back via GET. The publish-only `LocalBlobBackend` used by
-/// `tests/publish.rs` only tracks "uploaded" status; for round-trip we
-/// actually need the bytes.
-#[derive(Clone)]
-struct InMemoryBlobBackend {
-    base_url: Url,
-    blobs: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-}
-
-impl InMemoryBlobBackend {
-    fn new(base_url: Url) -> Self {
-        Self {
-            base_url,
-            blobs: Arc::new(Mutex::new(HashMap::new())),
-        }
-    }
-}
-
-impl BlobBackend for InMemoryBlobBackend {
-    fn upload_url(&self, blob_id: &BlobId) -> Result<Url, RegistryError> {
-        self.base_url
-            .join(&format!("blobs/{}", blob_id))
-            .map_err(|e| RegistryError::BlobBackend(e.to_string()))
-    }
-
-    fn download_url(&self, blob_id: &BlobId) -> Result<Url, RegistryError> {
-        self.base_url
-            .join(&format!("blobs/{}", blob_id))
-            .map_err(|e| RegistryError::BlobBackend(e.to_string()))
-    }
-
-    fn has_blob(&self, blob_id: &BlobId) -> Result<bool, RegistryError> {
-        Ok(self.blobs.lock().unwrap().contains_key(&blob_id.to_string()))
-    }
-
-    fn mark_uploaded(&self, _blob_id: &BlobId) -> Result<(), RegistryError> {
-        // We mark on the PUT handler, where we actually have the bytes.
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct BlobServerState {
-    backend: InMemoryBlobBackend,
-}
-
-async fn put_blob_handler(
-    State(state): State<BlobServerState>,
-    Path(blob_id_str): Path<String>,
-    body: Body,
-) -> StatusCode {
-    let blob_id: BlobId = match blob_id_str.parse() {
-        Ok(b) => b,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-    let bytes = match body.collect().await {
-        Ok(c) => c.to_bytes(),
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-    let mut hasher = elu_store::hasher::Hasher::new();
-    hasher.update(&bytes);
-    let actual = hasher.finalize();
-    if BlobId(actual) != blob_id {
-        return StatusCode::BAD_REQUEST;
-    }
-    state
-        .backend
-        .blobs
-        .lock()
-        .unwrap()
-        .insert(blob_id.to_string(), bytes.to_vec());
-    StatusCode::OK
-}
-
-async fn get_blob_handler(
-    State(state): State<BlobServerState>,
-    Path(blob_id_str): Path<String>,
-) -> Response {
-    match state.backend.blobs.lock().unwrap().get(&blob_id_str) {
-        Some(bytes) => Response::builder()
-            .status(StatusCode::OK)
-            .body(Body::from(bytes.clone()))
-            .unwrap(),
-        None => Response::builder()
-            .status(StatusCode::NOT_FOUND)
-            .body(Body::empty())
-            .unwrap(),
-    }
-}
-
-async fn spawn_blob_server() -> InMemoryBlobBackend {
+/// Bind a free TCP port, build a real `LocalBlobBackend`, mount its router
+/// (which serves both PUT and GET), and spawn. Subscriber-side install will
+/// hit the same backend's GET handler to fetch bytes back.
+async fn spawn_blob_backend() -> Arc<LocalBlobBackend> {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base = Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
-    let backend = InMemoryBlobBackend::new(base.clone());
-    let app = Router::new()
-        .route(
-            "/blobs/{blob_id}",
-            put(put_blob_handler).get(get_blob_handler),
-        )
-        .with_state(BlobServerState {
-            backend: backend.clone(),
-        });
+    let backend = Arc::new(LocalBlobBackend::new(base));
+    let app = backend.clone().router();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
@@ -180,18 +75,19 @@ fn publish_then_install_reproduces_original() {
         .assert()
         .success();
 
-    // 2. Spin up an in-process registry + GET/PUT blob server. The blob
-    //    server retains bytes so the subscriber can fetch them back.
+    // 2. Spin up an in-process registry + a real LocalBlobBackend serving
+    //    PUT and GET. The backend retains bytes so the subscriber can
+    //    fetch them back.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
         .build()
         .unwrap();
     let registry_url = rt.block_on(async {
-        let backend = spawn_blob_server().await;
+        let backend = spawn_blob_backend().await;
         let state = Arc::new(AppState {
             db: SqliteRegistryDb::open_in_memory().unwrap(),
-            blob_backend: Arc::new(backend) as Arc<dyn BlobBackend>,
+            blob_backend: backend as Arc<dyn BlobBackend>,
         });
         spawn_registry(state).await
     });

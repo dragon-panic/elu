@@ -1,20 +1,14 @@
 //! Slice 1 of the registry round-trip feature arc: the client publish library.
 //!
-//! Stand up the real axum registry router on a TCP port, stand up a tiny
-//! blob-storage HTTP endpoint on another port (accepts PUT, marks the blob
-//! uploaded on the shared `LocalBlobBackend`), seed an `FsStore` with a
-//! manifest + one layer blob, drive `publish_package`, and assert the
-//! returned `PackageRecord` matches the server's DB view and that every
-//! blob landed in the backend.
+//! Stand up the real axum registry router on a TCP port, stand up the real
+//! `LocalBlobBackend` blob router on another port (verifies hash on PUT and
+//! persists the bytes), seed an `FsStore` with a manifest + one layer blob,
+//! drive `publish_package`, and assert the returned `PackageRecord` matches
+//! the server's DB view and that every blob landed in the backend.
 
 use std::io::Cursor;
 use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::routing::put;
 use elu_registry::blob_store::{BlobBackend, LocalBlobBackend};
 use elu_registry::client::fallback::RegistryClient;
 use elu_registry::client::publish::publish_package;
@@ -24,7 +18,6 @@ use elu_store::atomic::FsyncMode;
 use elu_store::fs_store::FsStore;
 use elu_store::hash::BlobId;
 use elu_store::store::Store;
-use http_body_util::BodyExt;
 use tokio::net::TcpListener;
 use url::Url;
 
@@ -83,42 +76,6 @@ fn seed_package(store: &FsStore, ns: &str, name: &str, version: &str) -> BlobId 
     put.blob_id
 }
 
-/// State shared with the blob-upload HTTP server.
-#[derive(Clone)]
-struct BlobUploadState {
-    backend: Arc<LocalBlobBackend>,
-}
-
-/// Handler for `PUT /blobs/:blob_id` — parse the blob id, verify the uploaded
-/// bytes hash to it, then mark it uploaded on the shared backend.
-async fn put_blob_handler(
-    State(state): State<BlobUploadState>,
-    Path(blob_id_str): Path<String>,
-    body: Body,
-) -> StatusCode {
-    let blob_id: BlobId = match blob_id_str.parse() {
-        Ok(b) => b,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-
-    let bytes = match body.collect().await {
-        Ok(collected) => collected.to_bytes(),
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-
-    // Verify content hash matches the blob_id — catches silent corruption and
-    // proves the client uploaded the real bytes.
-    let mut hasher = elu_store::hasher::Hasher::new();
-    hasher.update(&bytes);
-    let actual = hasher.finalize();
-    if BlobId(actual) != blob_id {
-        return StatusCode::BAD_REQUEST;
-    }
-
-    state.backend.mark_uploaded(&blob_id).unwrap();
-    StatusCode::OK
-}
-
 /// Spawn the registry router on a free TCP port; return its base URL.
 async fn spawn_registry(state: Arc<AppState>) -> Url {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -130,25 +87,19 @@ async fn spawn_registry(state: Arc<AppState>) -> Url {
     Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap()
 }
 
-/// Bind a TCP listener on a free port, build an upload server against it,
-/// spawn, and return (base_url, backend). The backend's `upload_url` output
-/// will point at this server so client PUTs land at `put_blob_handler`.
-async fn spawn_blob_backend() -> (Url, Arc<LocalBlobBackend>) {
+/// Bind a free TCP port, build a real `LocalBlobBackend` whose `base_url`
+/// resolves to that port, mount its router, and spawn. The backend handles
+/// PUT (hash-verifying) and GET itself.
+async fn spawn_blob_backend() -> Arc<LocalBlobBackend> {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base = Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
-    let backend = Arc::new(LocalBlobBackend::new(base.clone()));
-
-    let app = Router::new()
-        .route("/blobs/{blob_id}", put(put_blob_handler))
-        .with_state(BlobUploadState {
-            backend: backend.clone(),
-        });
+    let backend = Arc::new(LocalBlobBackend::new(base));
+    let app = backend.clone().router();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-
-    (base, backend)
+    backend
 }
 
 #[tokio::test]
@@ -163,8 +114,8 @@ async fn publish_package_end_to_end() {
     let version = "1.0.0";
     let blob_id = seed_package(&store, ns, name, version);
 
-    // ----- blob backend (and its HTTP upload receiver) -----
-    let (_blob_base, backend) = spawn_blob_backend().await;
+    // ----- blob backend (real LocalBlobBackend, real PUT/GET) -----
+    let backend = spawn_blob_backend().await;
 
     // ----- registry server -----
     let state = Arc::new(AppState {
