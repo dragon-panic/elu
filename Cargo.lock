@@ -637,6 +637,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "base64",
+ "camino",
  "elu-manifest",
  "elu-store",
  "http-body-util",
@@ -645,6 +646,8 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",

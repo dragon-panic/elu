@@ -1,0 +1,12 @@
+[
+  {
+    "timestamp": "2026-04-24T22:28:55.552073718Z",
+    "author": "claude",
+    "body": "auth pattern: server's Publisher extractor reads 'Authorization: Bearer <token>' and uses the token string directly as the publisher identity (no validation, no middleware). Client just needs to send the header — no test-specific auth plumbing required. Proceeding with red."
+  },
+  {
+    "timestamp": "2026-04-24T22:34:31.248026592Z",
+    "author": "claude",
+    "body": "code complete: red + green written and verified. Test publish_package_end_to_end passes; full elu-registry suite (13 integration test files, 55 tests total) passes; clippy --tests -D warnings clean. Files: crates/elu-registry/src/client/publish.rs (new), crates/elu-registry/src/client/mod.rs (added pub mod publish), crates/elu-registry/Cargo.toml (added camino/tar/tempfile dev-deps), crates/elu-registry/tests/client_publish.rs (new). API: pub async fn publish_package(client, store, ns, name, version, token, visibility) -> Result<PackageRecord, RegistryError>. No elu-store helper needed — Store trait already exposed get_ref/get_manifest/resolve_diff/size/get. BLOCKED on commit: harness denies all git mutation commands (git add, git commit, git reset, git merge) in both worktree and main repo. Read-only git is allowed but commits cannot be created from this session. Work is staged in main repo working tree. Worktree at /home/dragon/projects/elu/.claude/worktrees/agent-a54a4581 was created from a stale historical commit (b7e014e, docs-only) and lacks the codebase, so cannot be used as the work surface. Stopping per global instructions; user to commit and integrate."
+  }
+]
