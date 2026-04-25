@@ -37,10 +37,11 @@ async fn begin_publish(
         reason: format!("invalid base64: {e}"),
     })?;
 
-    // Manifests in the wild come in two on-store forms: canonical JSON (what
-    // `elu build` writes) and TOML (what some tests seed directly). Accept
-    // either rather than tying the wire format to a single serialization.
-    let manifest = parse_manifest_bytes(&manifest_bytes)?;
+    // Manifests on the wire are canonical JSON — the form `elu build` writes.
+    let manifest: elu_manifest::Manifest = serde_json::from_slice(&manifest_bytes)
+        .map_err(|e| RegistryError::InvalidManifest {
+            reason: format!("invalid manifest: {e}"),
+        })?;
 
     // Verify every diff_id in manifest appears in layers
     for layer in &manifest.layers {
@@ -186,20 +187,6 @@ fn find_session_by_package(
     // so we need to add that. For now, let's use a simple approach:
     // We store the session_id in a way we can find it.
     db.find_session_by_package(ns, name, version)
-}
-
-/// Parse a manifest blob accepting either canonical JSON (the form `elu build`
-/// writes) or TOML (the form many tests use directly).
-fn parse_manifest_bytes(bytes: &[u8]) -> Result<elu_manifest::Manifest, RegistryError> {
-    if let Ok(m) = serde_json::from_slice::<elu_manifest::Manifest>(bytes) {
-        return Ok(m);
-    }
-    let s = std::str::from_utf8(bytes).map_err(|e| RegistryError::InvalidManifest {
-        reason: format!("manifest not UTF-8: {e}"),
-    })?;
-    elu_manifest::from_toml_str(s).map_err(|e| RegistryError::InvalidManifest {
-        reason: format!("invalid manifest: {e}"),
-    })
 }
 
 fn chrono_now() -> String {

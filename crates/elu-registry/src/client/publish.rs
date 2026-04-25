@@ -55,9 +55,12 @@ pub async fn publish_package(
         })?;
 
     // 2. Parse the manifest and gather its layers' distribution records.
-    // The store may hold either canonical-JSON (what `elu build` writes) or
-    // TOML (what `client_publish` tests seed); accept either.
-    let manifest: Manifest = parse_manifest_bytes(&manifest_bytes)?;
+    // The store holds canonical JSON — the form `elu build` writes.
+    let manifest: Manifest = serde_json::from_slice(&manifest_bytes).map_err(|e| {
+        RegistryError::InvalidManifest {
+            reason: format!("invalid manifest: {e}"),
+        }
+    })?;
 
     let mut layers = Vec::with_capacity(manifest.layers.len());
     for (idx, layer) in manifest.layers.iter().enumerate() {
@@ -194,18 +197,4 @@ fn blob_bytes_for_upload(
 
 fn store_err(e: elu_store::error::StoreError) -> RegistryError {
     RegistryError::BlobBackend(format!("store: {e}"))
-}
-
-/// Parse a manifest from store bytes. Accepts canonical JSON (the form `elu
-/// build` writes) and TOML (the form some tests seed directly).
-fn parse_manifest_bytes(bytes: &[u8]) -> Result<Manifest, RegistryError> {
-    if let Ok(m) = serde_json::from_slice::<Manifest>(bytes) {
-        return Ok(m);
-    }
-    let s = std::str::from_utf8(bytes).map_err(|e| RegistryError::InvalidManifest {
-        reason: format!("manifest not UTF-8: {e}"),
-    })?;
-    elu_manifest::from_toml_str(s).map_err(|e| RegistryError::InvalidManifest {
-        reason: format!("invalid manifest: {e}"),
-    })
 }

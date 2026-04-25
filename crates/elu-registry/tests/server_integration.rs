@@ -23,9 +23,11 @@ fn test_app() -> Arc<AppState> {
     Arc::new(AppState { db, blob_backend })
 }
 
-/// Build a minimal valid manifest TOML string for testing.
-fn test_manifest_toml(ns: &str, name: &str, version: &str, diff_id: &DiffId) -> String {
-    format!(
+/// Build a minimal valid manifest as canonical JSON bytes (the on-wire form).
+/// Authored as TOML for legibility, then round-tripped through `from_toml_str`
+/// + `to_canonical_json` so each fixture matches what `elu build` would emit.
+fn test_manifest_json(ns: &str, name: &str, version: &str, diff_id: &DiffId) -> Vec<u8> {
+    let toml = format!(
         r#"schema = 1
 
 [package]
@@ -39,7 +41,9 @@ description = "Test package"
 diff_id = "{diff_id}"
 size = 200
 "#
-    )
+    );
+    let m = elu_manifest::from_toml_str(&toml).expect("fixture parses");
+    elu_manifest::to_canonical_json(&m)
 }
 
 // ---- Slice 9: POST begin publish ----
@@ -52,10 +56,10 @@ async fn begin_publish_returns_session_and_upload_urls() {
     let diff_id = DiffId(test_hash(0xbb));
     let blob_id = BlobId(test_hash(0xcc));
     let manifest_blob_id = ManifestHash(test_hash(0xaa));
-    let manifest_toml = test_manifest_toml("acme", "widget", "1.0.0", &diff_id);
+    let manifest_json = test_manifest_json("acme", "widget", "1.0.0", &diff_id);
     let manifest_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        manifest_toml.as_bytes(),
+        &manifest_json,
     );
 
     let req_body = serde_json::json!({
@@ -97,10 +101,10 @@ async fn begin_publish_rejects_reserved_namespace() {
     let app = router(state.clone());
 
     let diff_id = DiffId(test_hash(0xbb));
-    let manifest_toml = test_manifest_toml("debian", "pkg", "1.0.0", &diff_id);
+    let manifest_json = test_manifest_json("debian", "pkg", "1.0.0", &diff_id);
     let manifest_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        manifest_toml.as_bytes(),
+        &manifest_json,
     );
 
     let req_body = serde_json::json!({
@@ -159,10 +163,10 @@ async fn commit_makes_package_visible() {
     let diff_id = DiffId(test_hash(0xbb));
     let blob_id = BlobId(test_hash(0xcc));
     let manifest_blob_id = ManifestHash(test_hash(0xaa));
-    let manifest_toml = test_manifest_toml("acme", "widget", "1.0.0", &diff_id);
+    let manifest_json = test_manifest_json("acme", "widget", "1.0.0", &diff_id);
     let manifest_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        manifest_toml.as_bytes(),
+        &manifest_json,
     );
 
     let req_body = serde_json::json!({
@@ -242,10 +246,10 @@ async fn commit_fails_if_blobs_missing() {
     let diff_id = DiffId(test_hash(0xbb));
     let blob_id = BlobId(test_hash(0xcc));
     let manifest_blob_id = ManifestHash(test_hash(0xaa));
-    let manifest_toml = test_manifest_toml("acme", "widget", "1.0.0", &diff_id);
+    let manifest_json = test_manifest_json("acme", "widget", "1.0.0", &diff_id);
     let manifest_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        manifest_toml.as_bytes(),
+        &manifest_json,
     );
 
     let req_body = serde_json::json!({
@@ -507,10 +511,12 @@ ref = "acme/internal-lib"
 version = "*"
 "#
     );
+    let manifest = elu_manifest::from_toml_str(&manifest_toml).expect("fixture parses");
+    let manifest_json = elu_manifest::to_canonical_json(&manifest);
 
     let manifest_b64 = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
-        manifest_toml.as_bytes(),
+        &manifest_json,
     );
 
     let req_body = serde_json::json!({
