@@ -1,0 +1,13 @@
+{
+  "id": "3idQ",
+  "title": "CLI surface — close non-resolver PRD gaps (init/build/explain/schema/gc/fsck/refs)",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-25T14:31:40.667835055Z",
+  "updated_at": "2026-04-25T14:31:40.667835055Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "WKIW"
+}

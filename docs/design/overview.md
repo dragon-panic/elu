@@ -25,11 +25,23 @@ bearing way:
   hook surface and the deferred-work section that captures how `run`
   and its approval store slot back in later. The PRD remains the
   aspirational target; `run` is explicitly a v1.x feature.
+- **`elu audit` and `elu policy` are deferred to v1.x.** Both depend
+  on the capability-approval model that ships with `run`; without
+  `run` there is nothing meaningful for them to gate. Their CLI stubs
+  remain in place so the surface is reserved.
+- **Multi-platform package support (OCI-style image index)** stays
+  deferred per the PRD.
 
-Everything else in the PRD is in scope: store, layers, manifest,
-resolver, importers, outputs, registry (client **and** server,
-minimal), CLI, authoring workflow. Multi-platform package support
-(OCI-style image index) stays deferred per the PRD.
+Everything else in the PRD is in scope for v1: store, layers,
+manifest, resolver, importers, outputs, registry (client **and**
+server, minimal), CLI package-manager workflow (`install`, `add`,
+`remove`, `lock`, `update`, `stack`), authoring workflow.
+
+> **Scope ≠ status.** The list above is what v1 *targets*. Tracking
+> for what is currently *implemented* lives in `cx` under `WKIW`.
+> The resolver-driven CLI surface — multi-ref `install`/`stack`,
+> lockfile lifecycle, and the `add`/`remove`/`lock`/`update` verbs —
+> is tracked as children of `WKIW.wX0h`.
 
 ---
 
