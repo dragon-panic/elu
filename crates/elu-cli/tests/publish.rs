@@ -1,24 +1,17 @@
 //! Slice 2 of the registry round-trip arc (cx 7u2u): CLI publish dispatch.
 //!
-//! Drives the real `elu` binary against an in-process axum registry plus a
-//! tiny PUT-blob backend. Pre-builds a fixture via `elu build`, then runs
-//! `elu publish`, then asserts the published `PackageRecord` is visible in
-//! the registry's DB (the same shape as the slice-1 client_publish test).
+//! Drives the real `elu` binary against an in-process axum registry plus
+//! `LocalBlobBackend`'s built-in PUT/GET router. Pre-builds a fixture via
+//! `elu build`, then runs `elu publish`, then asserts the published
+//! `PackageRecord` is visible in the registry's DB.
 
 use std::fs;
 use std::sync::Arc;
 
 use assert_cmd::Command;
-use axum::Router;
-use axum::body::Body;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
-use axum::routing::put;
 use elu_registry::blob_store::{BlobBackend, LocalBlobBackend};
 use elu_registry::db::SqliteRegistryDb;
 use elu_registry::server::{AppState, router};
-use elu_store::hash::BlobId;
-use http_body_util::BodyExt;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
@@ -44,34 +37,6 @@ fn make_project(tmp: &TempDir) {
     fs::write(tmp.path().join("layers/files/hello.txt"), "hi").unwrap();
 }
 
-#[derive(Clone)]
-struct BlobUploadState {
-    backend: Arc<LocalBlobBackend>,
-}
-
-async fn put_blob_handler(
-    State(state): State<BlobUploadState>,
-    Path(blob_id_str): Path<String>,
-    body: Body,
-) -> StatusCode {
-    let blob_id: BlobId = match blob_id_str.parse() {
-        Ok(b) => b,
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-    let bytes = match body.collect().await {
-        Ok(c) => c.to_bytes(),
-        Err(_) => return StatusCode::BAD_REQUEST,
-    };
-    let mut hasher = elu_store::hasher::Hasher::new();
-    hasher.update(&bytes);
-    let actual = hasher.finalize();
-    if BlobId(actual) != blob_id {
-        return StatusCode::BAD_REQUEST;
-    }
-    state.backend.mark_uploaded(&blob_id).unwrap();
-    StatusCode::OK
-}
-
 async fn spawn_registry(state: Arc<AppState>) -> Url {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -82,18 +47,18 @@ async fn spawn_registry(state: Arc<AppState>) -> Url {
     Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap()
 }
 
-async fn spawn_blob_backend() -> (Url, Arc<LocalBlobBackend>) {
+/// Spawn `LocalBlobBackend`'s router on its own listener; return the backend
+/// (its `upload_url`/`download_url` point at this listener).
+async fn spawn_blob_backend() -> Arc<LocalBlobBackend> {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let base = Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
-    let backend = Arc::new(LocalBlobBackend::new(base.clone()));
-    let app = Router::new()
-        .route("/blobs/{blob_id}", put(put_blob_handler))
-        .with_state(BlobUploadState { backend: backend.clone() });
+    let backend = Arc::new(LocalBlobBackend::new(base));
+    let app = backend.clone().router();
     tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();
     });
-    (base, backend)
+    backend
 }
 
 #[test]
@@ -116,10 +81,10 @@ fn publish_dispatch_pushes_built_package_to_registry() {
         .build()
         .unwrap();
     let (registry_url, state) = rt.block_on(async {
-        let (_blob_base, backend) = spawn_blob_backend().await;
+        let backend = spawn_blob_backend().await;
         let state = Arc::new(AppState {
             db: SqliteRegistryDb::open_in_memory().unwrap(),
-            blob_backend: backend.clone() as Arc<dyn BlobBackend>,
+            blob_backend: backend as Arc<dyn BlobBackend>,
         });
         let url = spawn_registry(state.clone()).await;
         (url, state)
@@ -179,10 +144,10 @@ fn publish_json_emits_published_event() {
         .build()
         .unwrap();
     let registry_url = rt.block_on(async {
-        let (_blob_base, backend) = spawn_blob_backend().await;
+        let backend = spawn_blob_backend().await;
         let state = Arc::new(AppState {
             db: SqliteRegistryDb::open_in_memory().unwrap(),
-            blob_backend: backend.clone() as Arc<dyn BlobBackend>,
+            blob_backend: backend as Arc<dyn BlobBackend>,
         });
         spawn_registry(state).await
     });
