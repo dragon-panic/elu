@@ -24,6 +24,7 @@ pub mod schema;
 pub mod search;
 pub mod stack;
 pub mod stub;
+pub mod update;
 
 pub fn dispatch(cli: Cli) -> Result<(), CliError> {
     let ctx = GlobalCtx::from_args(&cli.global);
@@ -32,7 +33,7 @@ pub fn dispatch(cli: Cli) -> Result<(), CliError> {
         Command::Add(a) => add::run(&ctx, a),
         Command::Remove(a) => remove::run(&ctx, a),
         Command::Lock(a) => lock::run(&ctx, a),
-        Command::Update(a) => stub::run("update", "WKIW.wX0h", "resolver", &ctx, a),
+        Command::Update(a) => update::run(&ctx, a),
         Command::Stack(a) => stack::run(&ctx, a),
         Command::Audit(a) => stub::run("audit", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Policy(a) => stub::run("policy", "TBD", "policy crate", &ctx, a),

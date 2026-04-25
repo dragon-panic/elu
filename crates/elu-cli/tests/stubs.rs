@@ -21,11 +21,6 @@ fn assert_stub(args: &[&str], dep_marker: &str) {
 }
 
 #[test]
-fn update_is_stub() {
-    assert_stub(&["update"], "WKIW.wX0h");
-}
-
-#[test]
 fn stack_resolution_error_when_ref_not_in_store() {
     // No matching ref in a fresh store; resolver fails fast.
     let store = tempfile::TempDir::new().unwrap();
