@@ -1,0 +1,169 @@
+//! WKIW.MqEx — multi-ref `install` + transitive registry resolution.
+//!
+//! Headline test: install a package whose dependency must be fetched
+//! transitively from the registry. Pre-MqEx, install errors at
+//! `install.rs:77-85` because the resolver's fetch_plan still has items
+//! after the single-ref fetch. Post-MqEx, install drives the resolver
+//! against a registry-backed source and walks the full closure into the
+//! local store before stacking.
+
+use std::fs;
+use std::sync::Arc;
+
+use assert_cmd::Command;
+use elu_registry::blob_store::{BlobBackend, LocalBlobBackend};
+use elu_registry::db::SqliteRegistryDb;
+use elu_registry::server::{AppState, router};
+use tempfile::TempDir;
+use tokio::net::TcpListener;
+use url::Url;
+
+const DEP_MANIFEST: &str = r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "dep"
+version     = "0.1.0"
+kind        = "native"
+description = "transitive dep fixture"
+
+[[layer]]
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
+"#;
+
+const APP_MANIFEST: &str = r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "app"
+version     = "0.1.0"
+kind        = "native"
+description = "fixture that depends on ns/dep"
+
+[[layer]]
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
+
+[[dependency]]
+ref     = "ns/dep"
+version = "^0.1"
+"#;
+
+fn write_project(tmp: &TempDir, manifest: &str, marker_filename: &str, marker_contents: &str) {
+    fs::write(tmp.path().join("elu.toml"), manifest).unwrap();
+    fs::create_dir_all(tmp.path().join("layers/files")).unwrap();
+    fs::write(tmp.path().join("layers/files").join(marker_filename), marker_contents).unwrap();
+}
+
+async fn spawn_blob_backend() -> Arc<LocalBlobBackend> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let base = Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
+    let backend = Arc::new(LocalBlobBackend::new(base));
+    let app = backend.clone().router();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    backend
+}
+
+async fn spawn_registry(state: Arc<AppState>) -> Url {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = router(state);
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap()
+}
+
+fn build(project: &TempDir, store: &TempDir) {
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "build"])
+        .current_dir(project.path())
+        .assert()
+        .success();
+}
+
+fn publish(project: &TempDir, store: &TempDir, registry: &Url, reference: &str) {
+    Command::cargo_bin("elu")
+        .unwrap()
+        .env_remove("ELU_PUBLISH_TOKEN")
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "--registry",
+            registry.as_str(),
+            "publish",
+            reference,
+            "--token",
+            "alice",
+        ])
+        .current_dir(project.path())
+        .assert()
+        .success();
+}
+
+#[test]
+fn install_pulls_transitive_deps() {
+    // Publisher: build + publish ns/dep@0.1.0, then ns/app@0.1.0 (depends on ns/dep).
+    let pub_store = TempDir::new().unwrap();
+
+    let dep_proj = TempDir::new().unwrap();
+    write_project(&dep_proj, DEP_MANIFEST, "dep.txt", "from-dep");
+
+    let app_proj = TempDir::new().unwrap();
+    write_project(&app_proj, APP_MANIFEST, "app.txt", "from-app");
+
+    build(&dep_proj, &pub_store);
+    build(&app_proj, &pub_store);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let registry_url = rt.block_on(async {
+        let backend = spawn_blob_backend().await;
+        let state = Arc::new(AppState {
+            db: SqliteRegistryDb::open_in_memory().unwrap(),
+            blob_backend: backend as Arc<dyn BlobBackend>,
+        });
+        spawn_registry(state).await
+    });
+
+    publish(&dep_proj, &pub_store, &registry_url, "ns/dep@0.1.0");
+    publish(&app_proj, &pub_store, &registry_url, "ns/app@0.1.0");
+
+    // Subscriber: fresh store. Install ns/app — its dep must come along.
+    let sub_project = TempDir::new().unwrap();
+    let sub_store = TempDir::new().unwrap();
+    let out_path = sub_project.path().join("installed");
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            sub_store.path().to_str().unwrap(),
+            "--registry",
+            registry_url.as_str(),
+            "install",
+            "ns/app@0.1.0",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .current_dir(sub_project.path())
+        .assert()
+        .success();
+
+    // Both layers must materialize: app.txt from ns/app and dep.txt from ns/dep.
+    let app_file = fs::read_to_string(out_path.join("app.txt"))
+        .expect("app.txt should exist after install");
+    assert_eq!(app_file, "from-app");
+    let dep_file = fs::read_to_string(out_path.join("dep.txt"))
+        .expect("dep.txt should exist after install (transitive dep was fetched)");
+    assert_eq!(dep_file, "from-dep");
+}
