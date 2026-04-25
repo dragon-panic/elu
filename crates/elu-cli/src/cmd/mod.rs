@@ -14,6 +14,7 @@ pub mod import;
 pub mod init;
 pub mod inspect;
 pub mod install;
+pub mod lock;
 pub mod ls;
 pub mod publish;
 pub mod refs;
@@ -28,7 +29,7 @@ pub fn dispatch(cli: Cli) -> Result<(), CliError> {
         Command::Install(a) => install::run(&ctx, a),
         Command::Add(a) => stub::run("add", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Remove(a) => stub::run("remove", "WKIW.wX0h", "resolver", &ctx, a),
-        Command::Lock(a) => stub::run("lock", "WKIW.wX0h", "resolver", &ctx, a),
+        Command::Lock(a) => lock::run(&ctx, a),
         Command::Update(a) => stub::run("update", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Stack(a) => stack::run(&ctx, a),
         Command::Audit(a) => stub::run("audit", "WKIW.wX0h", "resolver", &ctx, a),

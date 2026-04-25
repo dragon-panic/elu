@@ -1,15 +1,18 @@
 {
   "id": "bP11",
   "title": "Lockfile lifecycle in CLI — `elu lock` + `--locked` semantics",
-  "state": "ready",
+  "state": "claimed",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-25T14:29:34.332120753Z",
-  "updated_at": "2026-04-25T14:36:53.640765565Z",
+  "updated_at": "2026-04-25T14:44:43.114264591Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW.wX0h",
+  "meta": {
+    "_reason": "starting slice 1: lockfile lifecycle in CLI"
+  },
   "edges": [
     {
       "to": "BfF6",

@@ -31,11 +31,6 @@ fn remove_is_stub() {
 }
 
 #[test]
-fn lock_is_stub() {
-    assert_stub(&["lock"], "WKIW.wX0h");
-}
-
-#[test]
 fn update_is_stub() {
     assert_stub(&["update"], "WKIW.wX0h");
 }

@@ -1,0 +1,7 @@
+[
+  {
+    "timestamp": "2026-04-25T14:44:43.114261896Z",
+    "author": "claude",
+    "body": "Scope decision (red phase, 2026-04-25): tightened to (1) `elu lock` command end-to-end, (2) walk-up rule for elu.toml discovery, (3) `--locked` exit-7 semantics on `elu lock`. Install/stack lockfile-reading and `--locked` propagation to install/stack defer to MqEx, where the registry-driven resolver source is being introduced anyway. PRD/design docs updated to specify cargo-style walk-up."
+  }
+]

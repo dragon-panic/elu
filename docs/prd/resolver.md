@@ -147,6 +147,13 @@ The lockfile is intended to be committed to version control. A team
 that commits `elu.lock` gets byte-identical stacks on every machine
 until someone runs `elu update`.
 
+The lockfile lives next to the project's `elu.toml`. CLI commands
+that read or write it locate the project root by walking up from
+the current directory until an `elu.toml` is found — the same rule
+cargo uses to find `Cargo.toml`/`Cargo.lock`. Running `elu lock`
+from a subdirectory of a project updates the project-root lockfile,
+not a stray subdirectory file.
+
 ### Lockfile commands
 
 | Command | Effect |

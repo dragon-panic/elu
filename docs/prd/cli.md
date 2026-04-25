@@ -44,8 +44,11 @@ elu install ox-community/postgres-query ox-community/shell
 elu install -o /srv/skills ox-community/postgres-query@^0.3
 ```
 
-Writes or updates the lockfile (`elu.lock` in the current directory).
-With `--locked`, fails if resolution would change the lockfile.
+Writes or updates the lockfile (`elu.lock` next to the project's
+`elu.toml`). The project root is found by walking up from the
+current directory until an `elu.toml` is located, the same way
+`cargo` finds `Cargo.toml`. With `--locked`, fails if resolution
+would change the lockfile.
 
 ### `elu add <ref>...`
 
@@ -63,7 +66,9 @@ Remove a reference from the project manifest. Updates the lockfile.
 ### `elu lock`
 
 Resolve the project manifest and write `elu.lock`. Does not stack
-anything.
+anything. The project root is located by walking up from the
+current directory until an `elu.toml` is found; the lockfile is
+written next to that `elu.toml` (cargo's rule, not literal CWD).
 
 ```
 elu lock             # regenerate the lockfile
