@@ -1,6 +1,6 @@
 use camino::Utf8Path;
 use elu_hooks::HookMode as LayersHookMode;
-use elu_layers::{stage, stack as layers_stack};
+use elu_stacker::{stage, stack as layers_stack};
 use elu_manifest::types::{PackageRef, VersionSpec};
 use elu_outputs::{
     Compression, DirOpts, FormatName, Options, Outcome, Qcow2Opts, TarOpts, infer_compression,
@@ -94,7 +94,7 @@ fn run_pipeline(
     args: &StackArgs,
     format: FormatName,
     hook_mode: LayersHookMode,
-) -> Result<(u64, elu_layers::StackStats, Outcome), CliError> {
+) -> Result<(u64, elu_stacker::StackStats, Outcome), CliError> {
     // Dir with no post-walk options: keep the existing stack() fast-path
     // (which does stage + rename inline) so `elu stack foo -o ./foo` is
     // unchanged for simple users.

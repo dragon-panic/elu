@@ -1,15 +1,18 @@
 {
   "id": "i1qV",
   "title": "Pull stack orchestration out of `elu-layers`",
-  "state": "ready",
+  "state": "claimed",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-25T16:14:55.667332691Z",
-  "updated_at": "2026-04-25T16:23:27.409196901Z",
+  "updated_at": "2026-04-25T16:23:32.067489617Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "0CZW",
+  "meta": {
+    "_reason": "starting cleanup slice 2: pull stack orchestration out of elu-layers"
+  },
   "edges": [
     {
       "to": "MqEx",

@@ -3,7 +3,7 @@ mod common;
 use common::{Tar, env, store_plain};
 
 use elu_hooks::HookMode;
-use elu_layers::stack;
+use elu_stacker::stack;
 use elu_manifest::types::{Manifest, Package, PackageRef};
 use elu_resolver::types::{FetchPlan, Resolution, ResolvedManifest};
 use elu_store::hash::{DiffId, ManifestHash};

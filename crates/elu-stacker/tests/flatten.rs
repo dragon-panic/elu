@@ -1,4 +1,4 @@
-use elu_layers::flatten;
+use elu_stacker::flatten;
 use elu_manifest::types::{Manifest, Package, PackageRef};
 use elu_resolver::types::{FetchPlan, Resolution, ResolvedManifest};
 use elu_store::hash::{DiffId, Hash, HashAlgo, ManifestHash};

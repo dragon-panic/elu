@@ -1,19 +1,23 @@
 [package]
-name = "elu-layers"
+name = "elu-stacker"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+elu-hooks = { path = "../elu-hooks" }
+elu-layers = { path = "../elu-layers" }
+elu-manifest = { path = "../elu-manifest" }
+elu-resolver = { path = "../elu-resolver" }
 elu-store = { path = "../elu-store" }
 
 camino = "1"
-flate2 = "1"
-tar = "0.4"
 tempfile = "3"
 thiserror = "2"
-zstd = "0.13"
 
 [dev-dependencies]
 elu-store = { path = "../elu-store" }
+flate2 = "1"
 semver = "1"
+tar = "0.4"
 toml = "0.8"
+zstd = "0.13"

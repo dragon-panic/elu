@@ -3,7 +3,7 @@ mod common;
 use common::{Tar, env, store_plain};
 
 use elu_hooks::HookMode;
-use elu_layers::{LayerError, stack};
+use elu_stacker::stack;
 use elu_manifest::types::{Hook, HookOp, Manifest, Package, PackageRef, PatchSource};
 use elu_resolver::types::{FetchPlan, Resolution, ResolvedManifest};
 use elu_store::hash::{DiffId, Hash, HashAlgo, ManifestHash};
@@ -44,67 +44,51 @@ fn resolution(layers: Vec<DiffId>, manifest: Manifest) -> Resolution {
 }
 
 #[test]
-fn hook_mode_off_skips_hook_and_succeeds() {
+fn failed_hook_rolls_back_target_untouched() {
     let e = env();
     let layer = Tar::new()
         .file_mode_owned("base.txt", b"layer", 0o644)
         .into_bytes();
     let did = store_plain(&e, &layer);
 
-    // Hook would fail (patch on missing file). HookMode::Off must skip it.
+    // A patch op against a missing file fails.
     let manifest = manifest_with_hook(vec![HookOp::Patch {
-        file: "missing.txt".into(),
+        file: "does-not-exist.txt".into(),
         source: PatchSource::Inline {
-            diff: "noop".into(),
+            diff: "--- a\n+++ b\n@@ -1 +1 @@\n-x\n+y\n".into(),
         },
         fuzz: false,
     }]);
     let res = resolution(vec![did], manifest);
 
     let target = camino::Utf8PathBuf::from_path_buf(e.work_dir.path().join("out")).unwrap();
-    let stats = stack(&e.store, &res, &target, HookMode::Off, false).unwrap();
+    let result = stack(&e.store, &res, &target, HookMode::Safe, false);
+    assert!(result.is_err(), "expected error, got {result:?}");
 
-    assert_eq!(stats.hook.ops_run, 0);
-    assert!(target.join("base.txt").as_std_path().exists());
+    // Target was never created.
+    assert!(!target.as_std_path().exists());
+
+    // No staging dir leaked next to target.
+    let parent = target.parent().unwrap();
+    let leftover: Vec<_> = std::fs::read_dir(parent.as_std_path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert!(leftover.is_empty(), "parent dir not cleaned: {leftover:?}");
 }
 
 #[test]
-fn pre_existing_target_fails_without_force() {
+fn failed_layer_apply_rolls_back() {
     let e = env();
-    let layer = Tar::new()
-        .file_mode_owned("a.txt", b"new", 0o644)
+    // Put a layer with an unsafe path into the store; apply rejects it.
+    let bad_tar = Tar::new()
+        .raw_path("../escape", b"x")
         .into_bytes();
-    let did = store_plain(&e, &layer);
-    let res = resolution(vec![did], manifest_with_hook(vec![]));
-
-    // Pre-create the target with content the user might want preserved.
-    let target = camino::Utf8PathBuf::from_path_buf(e.work_dir.path().join("out")).unwrap();
-    std::fs::create_dir_all(target.as_std_path()).unwrap();
-    std::fs::write(target.join("preexisting.txt").as_std_path(), b"keep me").unwrap();
-
-    let err = stack(&e.store, &res, &target, HookMode::Safe, false).unwrap_err();
-    assert!(matches!(err, LayerError::TargetExists(_)));
-    // Existing content untouched.
-    assert_eq!(common::read_to_string(&target.join("preexisting.txt")), "keep me");
-    assert!(!target.join("a.txt").as_std_path().exists());
-}
-
-#[test]
-fn pre_existing_target_replaced_with_force() {
-    let e = env();
-    let layer = Tar::new()
-        .file_mode_owned("a.txt", b"new", 0o644)
-        .into_bytes();
-    let did = store_plain(&e, &layer);
+    let did = store_plain(&e, &bad_tar);
     let res = resolution(vec![did], manifest_with_hook(vec![]));
 
     let target = camino::Utf8PathBuf::from_path_buf(e.work_dir.path().join("out")).unwrap();
-    std::fs::create_dir_all(target.as_std_path()).unwrap();
-    std::fs::write(target.join("preexisting.txt").as_std_path(), b"keep me").unwrap();
-
-    stack(&e.store, &res, &target, HookMode::Safe, true).unwrap();
-
-    // Old content gone, new layer materialized.
-    assert!(!target.join("preexisting.txt").as_std_path().exists());
-    assert_eq!(common::read_to_string(&target.join("a.txt")), "new");
+    let result = stack(&e.store, &res, &target, HookMode::Safe, false);
+    assert!(result.is_err());
+    assert!(!target.as_std_path().exists());
 }

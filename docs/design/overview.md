@@ -57,13 +57,14 @@ elu/
 ├── Cargo.toml                  # workspace root
 ├── crates/
 │   ├── elu-store/              # ring 1: CAS + hash types + refs + GC
-│   ├── elu-layers/             # ring 2: tar + zstd/gzip + whiteouts + stacker
+│   ├── elu-layers/              # ring 2: tar + zstd/gzip + whiteouts + per-layer apply
 │   ├── elu-manifest/           # ring 3: Manifest struct + TOML/JSON + validation
 │   ├── elu-hooks/              # hook op interpreter (declarative ops, v1)
 │   ├── elu-resolver/           # ring 4: ref → manifest-hash, dep graph, flatten
 │   ├── elu-importers/          # ring 5: apt/npm/pip adapters (future rings)
 │   ├── elu-outputs/            # ring 6: dir/tar/qcow2 materializers
 │   ├── elu-registry/           # ring 7: HTTP client + server (async)
+│   ├── elu-stacker/            # orchestration: Resolution → unpack → run hooks
 │   └── elu-cli/                # ring 8: clap entry point, binary target `elu`
 ├── docs/
 │   ├── prd/                    # product requirements (what)
@@ -82,27 +83,38 @@ they don't touch the filesystem.** This matches the PRD's mental
 model — ids are store concepts — and avoids a dedicated `elu-core`
 types crate whose only job is sharing four newtypes.
 
-Dependency direction (cargo edges):
+Dependency direction (cargo edges, source of truth: `cargo metadata`):
 
 ```
-elu-store                                 (no elu deps)
+elu-store                                  (no elu deps; ring 1)
    ↑
-elu-layers          elu-manifest          (siblings — neither depends
-   ↑                    ↑                  on the other)
-   └─────────┬──────────┘
-             ↓
-         elu-hooks
-             ↑
-         elu-resolver   ← elu-manifest, elu-store
-             ↑
-         elu-outputs    ← elu-layers, elu-resolver, elu-hooks
-             ↑
-         elu-registry   ← elu-manifest, elu-store  (async boundary)
-             ↑
-         elu-importers  ← elu-manifest, elu-layers, elu-store
-             ↑
-         elu-cli        ← everything
+elu-layers   elu-manifest                  (ring 2 / 3; siblings, no
+   ↑              ↑                         edge between them. Layers
+   |              |                         is pure tar primitives —
+   |              |                         no hook or resolver knowledge.)
+   |              |
+   |              ↓
+   |          elu-hooks            ← elu-manifest, elu-store
+   |              ↑
+   |          elu-resolver         ← elu-manifest, elu-store
+   |              ↑
+   |          elu-registry         ← elu-manifest, elu-store  (async boundary)
+   |              ↑
+   |          elu-outputs          ← elu-manifest
+   |              ↑
+   └────────→ elu-stacker          ← elu-layers, elu-hooks, elu-resolver,
+                  ↑                                          elu-manifest, elu-store
+              elu-importers        ← elu-manifest, elu-store
+                  ↑
+              elu-cli              ← everything
 ```
+
+`elu-stacker` is the orchestration crate that owns the "apply a
+Resolution into a directory and run its post-unpack hook" flow. It
+sits above layers + hooks + resolver because it composes all three;
+prior to the WKIW.0CZW cleanup this orchestration lived inside
+`elu-layers`, which inverted the PRD ring model. Now `elu-layers` is
+strictly tar primitives.
 
 The resolver depends on `elu-manifest` (it walks dependency trees)
 and on `elu-store` (it pins and fetches). `elu-importers` sits above
@@ -114,18 +126,27 @@ it is sync.
 
 ## Async boundary
 
-**Sync core, async only at the registry edge.** Store, layers,
-manifest, hooks, resolver, outputs, and importers are sync crates
-with sync public APIs. Their functions do not return futures and do
-not require an executor. Blocking filesystem and CPU work (`sha256`,
-`tar`, `zstd`) stays on the calling thread.
+**Sync core, async at the network edge — except `elu-resolver` is
+async-capable.** Store, layers, manifest, hooks, outputs, importers,
+and stacker are fully sync. `elu-registry` and `elu-resolver` are the
+two async-flavored crates.
 
-`elu-registry` is the one async crate. It uses `tokio` (multi-thread
-runtime) and `reqwest` for the HTTP client and `axum` for the server.
-Parallel blob fetches are the reason — serial fetches would dominate
-any resolver that needs more than a couple of packages from the
-network, and the cost of running tokio for that one boundary is low
-because it doesn't leak into other crates.
+`elu-registry` is async by construction: HTTP client (reqwest) and
+server (axum), tokio runtime. Parallel blob fetches are the reason —
+serial fetches would dominate any resolver that needs more than a
+couple of packages from the network.
+
+`elu-resolver` exposes an async `VersionSource` trait whose methods
+return `impl Future<…>`. The body of `resolve` is `pub async fn`. A
+sync caller (`elu lock` against an `OfflineSource`) reaches the
+resolver through a `tokio::runtime::Builder::new_current_thread`
+block_on, paying nothing for the async coloring at runtime; an
+async caller (registry-backed source from `elu install`) reuses the
+same trait without bridging. The earlier "everything below registry
+is sync" statement was aspirational — keeping the resolver sync
+forces a sync→async hop at every fetched manifest, which is awkward
+when most of the resolver's I/O is the source's parallel network
+calls. Living with the async coloring at this one ring is cheaper.
 
 `elu-cli` starts a tokio runtime lazily: only commands that touch the
 network (`install`, `publish`, `pull`, `fetch`, `serve`) enter the

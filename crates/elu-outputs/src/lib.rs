@@ -146,7 +146,7 @@ pub fn infer_compression(target: &Utf8Path) -> Compression {
 /// the named `format` and `options`.
 ///
 /// The caller is responsible for producing `staging` (via
-/// `elu_layers::stage`) and for cleaning up `staging` on error. On success
+/// `elu_stacker::stage`) and for cleaning up `staging` on error. On success
 /// the output takes ownership of `staging` (moves or copies it into the
 /// final artifact).
 pub fn materialize(

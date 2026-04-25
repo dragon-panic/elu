@@ -4,12 +4,12 @@ use std::io;
 use camino::{Utf8Path, Utf8PathBuf};
 
 use elu_hooks::{HookMode, HookRunner, HookStats, PackageContext};
+use elu_layers::apply::{ApplyStats, apply};
 use elu_resolver::Resolution;
 use elu_store::hash::DiffId;
 use elu_store::store::Store;
 
-use crate::apply::{ApplyStats, apply};
-use crate::error::LayerError;
+use crate::error::StackError;
 
 /// Counters reported by [`stack`].
 #[derive(Debug, Default)]
@@ -42,7 +42,7 @@ pub fn stage(
     resolution: &Resolution,
     parent_dir: &Utf8Path,
     hook_mode: HookMode,
-) -> Result<(Staging, StackStats), LayerError> {
+) -> Result<(Staging, StackStats), StackError> {
     let staging = Staging::create(parent_dir)?;
     let mut stats = StackStats::default();
     for diff_id in &resolution.layers {
@@ -77,7 +77,7 @@ pub fn stage(
 /// untouched.
 ///
 /// `force` removes a pre-existing target before staging; without it,
-/// pre-existing targets fail with [`LayerError::TargetExists`].
+/// pre-existing targets fail with [`StackError::TargetExists`].
 ///
 /// See `docs/prd/layers.md` § "Stacking Semantics" and § "Post-Unpack Hook".
 pub fn stack(
@@ -86,16 +86,16 @@ pub fn stack(
     target: &Utf8Path,
     hook_mode: HookMode,
     force: bool,
-) -> Result<StackStats, LayerError> {
+) -> Result<StackStats, StackError> {
     if target.as_std_path().exists() {
         if !force {
-            return Err(LayerError::TargetExists(target.to_path_buf()));
+            return Err(StackError::TargetExists(target.to_path_buf()));
         }
         remove_target(target)?;
     }
 
     let parent = target_parent(target);
-    fs::create_dir_all(parent.as_std_path()).map_err(LayerError::Staging)?;
+    fs::create_dir_all(parent.as_std_path()).map_err(StackError::Staging)?;
     let (staging, stats) = stage(store, resolution, &parent, hook_mode)?;
     staging.finalize(target)?;
     Ok(stats)
@@ -109,19 +109,19 @@ pub struct Staging {
 }
 
 impl Staging {
-    fn create(parent: &Utf8Path) -> Result<Self, LayerError> {
+    fn create(parent: &Utf8Path) -> Result<Self, StackError> {
         let parent = if parent.as_str().is_empty() {
             Utf8PathBuf::from(".")
         } else {
             parent.to_path_buf()
         };
-        fs::create_dir_all(parent.as_std_path()).map_err(LayerError::Staging)?;
+        fs::create_dir_all(parent.as_std_path()).map_err(StackError::Staging)?;
         let tmp = tempfile::Builder::new()
             .prefix(".elu-stage.")
             .tempdir_in(parent.as_std_path())
-            .map_err(LayerError::Staging)?;
+            .map_err(StackError::Staging)?;
         let path = Utf8PathBuf::from_path_buf(tmp.path().to_path_buf())
-            .map_err(|p| LayerError::Staging(io::Error::other(format!("staging not utf8: {p:?}"))))?;
+            .map_err(|p| StackError::Staging(io::Error::other(format!("staging not utf8: {p:?}"))))?;
         // Detach: we manage cleanup ourselves so we can rename on success.
         std::mem::forget(tmp);
         Ok(Staging { path, armed: true })
@@ -140,7 +140,7 @@ impl Staging {
 
     /// Rename the staging directory onto `target`. Staging must be on the
     /// same filesystem as `target`'s parent.
-    pub fn finalize(mut self, target: &Utf8Path) -> Result<(), LayerError> {
+    pub fn finalize(mut self, target: &Utf8Path) -> Result<(), StackError> {
         fs::rename(self.path.as_std_path(), target.as_std_path())?;
         self.armed = false;
         Ok(())
@@ -162,7 +162,7 @@ fn target_parent(target: &Utf8Path) -> Utf8PathBuf {
     }
 }
 
-fn remove_target(target: &Utf8Path) -> Result<(), LayerError> {
+fn remove_target(target: &Utf8Path) -> Result<(), StackError> {
     match fs::symlink_metadata(target.as_std_path()) {
         Ok(meta) => {
             if meta.is_dir() {
@@ -173,6 +173,6 @@ fn remove_target(target: &Utf8Path) -> Result<(), LayerError> {
             Ok(())
         }
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(LayerError::Io(e)),
+        Err(e) => Err(StackError::Io(e)),
     }
 }

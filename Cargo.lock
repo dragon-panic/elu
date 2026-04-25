@@ -536,6 +536,7 @@ dependencies = [
  "elu-outputs",
  "elu-registry",
  "elu-resolver",
+ "elu-stacker",
  "elu-store",
  "http-body-util",
  "predicates",
@@ -592,9 +593,6 @@ name = "elu-layers"
 version = "0.1.0"
 dependencies = [
  "camino",
- "elu-hooks",
- "elu-manifest",
- "elu-resolver",
  "elu-store",
  "flate2",
  "semver",
@@ -664,7 +662,6 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "elu-manifest",
- "elu-registry",
  "elu-store",
  "semver",
  "serde",
@@ -672,6 +669,25 @@ dependencies = [
  "tokio",
  "toml",
  "url",
+]
+
+[[package]]
+name = "elu-stacker"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "elu-hooks",
+ "elu-layers",
+ "elu-manifest",
+ "elu-resolver",
+ "elu-store",
+ "flate2",
+ "semver",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "toml",
+ "zstd",
 ]
 
 [[package]]

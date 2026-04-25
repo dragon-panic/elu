@@ -12,7 +12,7 @@ use std::io::Cursor;
 
 use camino::Utf8PathBuf;
 use elu_hooks::HookMode as LayersHookMode;
-use elu_layers::stack as layers_stack;
+use elu_stacker::stack as layers_stack;
 use elu_manifest::types::{PackageRef, VersionSpec};
 use elu_registry::client::fallback::RegistryClient;
 use elu_registry::client::verify::{verify_blob, verify_manifest};

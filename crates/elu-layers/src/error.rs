@@ -1,6 +1,3 @@
-use camino::Utf8PathBuf;
-
-use elu_hooks::HookError;
 use elu_store::error::StoreError;
 use elu_store::hash::DiffId;
 
@@ -11,9 +8,6 @@ pub enum LayerError {
 
     #[error("store: {0}")]
     Store(#[from] StoreError),
-
-    #[error("hook: {0}")]
-    Hook(#[from] HookError),
 
     #[error("diff_id not in store: {0}")]
     DiffNotFound(DiffId),
@@ -26,10 +20,4 @@ pub enum LayerError {
 
     #[error("non-utf8 tar entry path")]
     NonUtf8Path,
-
-    #[error("target exists: {0}")]
-    TargetExists(Utf8PathBuf),
-
-    #[error("staging directory unavailable: {0}")]
-    Staging(std::io::Error),
 }

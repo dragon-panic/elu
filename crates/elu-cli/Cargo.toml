@@ -16,6 +16,7 @@ elu-manifest = { path = "../elu-manifest" }
 elu-outputs = { path = "../elu-outputs" }
 elu-registry = { path = "../elu-registry" }
 elu-resolver = { path = "../elu-resolver" }
+elu-stacker = { path = "../elu-stacker" }
 elu-store = { path = "../elu-store" }
 
 camino = "1"
