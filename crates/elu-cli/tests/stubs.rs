@@ -21,11 +21,6 @@ fn assert_stub(args: &[&str], dep_marker: &str) {
 }
 
 #[test]
-fn remove_is_stub() {
-    assert_stub(&["remove", "ns/pkg"], "WKIW.wX0h");
-}
-
-#[test]
 fn update_is_stub() {
     assert_stub(&["update"], "WKIW.wX0h");
 }

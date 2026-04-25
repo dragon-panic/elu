@@ -19,6 +19,7 @@ pub mod lock;
 pub mod ls;
 pub mod publish;
 pub mod refs;
+pub mod remove;
 pub mod schema;
 pub mod search;
 pub mod stack;
@@ -29,7 +30,7 @@ pub fn dispatch(cli: Cli) -> Result<(), CliError> {
     let result = match cli.command {
         Command::Install(a) => install::run(&ctx, a),
         Command::Add(a) => add::run(&ctx, a),
-        Command::Remove(a) => stub::run("remove", "WKIW.wX0h", "resolver", &ctx, a),
+        Command::Remove(a) => remove::run(&ctx, a),
         Command::Lock(a) => lock::run(&ctx, a),
         Command::Update(a) => stub::run("update", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Stack(a) => stack::run(&ctx, a),
