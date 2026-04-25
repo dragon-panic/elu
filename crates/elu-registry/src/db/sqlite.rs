@@ -649,7 +649,30 @@ impl SqliteRegistryDb {
         &self,
         hash: &ManifestHash,
     ) -> Result<PackageRecord, RegistryError> {
-        unimplemented!("get_version_by_manifest_hash — implemented in green slice")
+        let hash_str = hash.to_string();
+        let (ns, name, version) = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT namespace, name, version
+                 FROM package_versions
+                 WHERE manifest_blob_id = ?1",
+                params![hash_str],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(|e| match e {
+                rusqlite::Error::QueryReturnedNoRows => {
+                    RegistryError::ManifestHashNotFound { hash: hash_str.clone() }
+                }
+                other => RegistryError::from(other),
+            })?
+        };
+        self.get_version(&ns, &name, &version)
     }
 
     /// Hash-keyed variant of `get_version_with_visibility`. Hides private
@@ -660,9 +683,17 @@ impl SqliteRegistryDb {
         hash: &ManifestHash,
         authenticated_ns: Option<&str>,
     ) -> Result<PackageRecord, RegistryError> {
-        unimplemented!(
-            "get_version_by_manifest_hash_with_visibility — implemented in green slice"
-        )
+        let record = self.get_version_by_manifest_hash(hash)?;
+        if record.visibility == Visibility::Private {
+            match authenticated_ns {
+                Some(ns) if ns == record.namespace => Ok(record),
+                _ => Err(RegistryError::ManifestHashNotFound {
+                    hash: hash.to_string(),
+                }),
+            }
+        } else {
+            Ok(record)
+        }
     }
 
     /// Get version with visibility enforcement.
