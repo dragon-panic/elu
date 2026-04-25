@@ -1,11 +1,11 @@
 {
   "id": "MqEx",
   "title": "Multi-ref `install` + transitive registry resolution",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T14:30:42.728748821Z",
-  "updated_at": "2026-04-25T14:30:42.728748821Z",
+  "updated_at": "2026-04-25T14:47:28.225445407Z",
   "tags": [
     "workflow:code-task"
   ],

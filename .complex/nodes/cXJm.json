@@ -1,11 +1,11 @@
 {
   "id": "cXJm",
   "title": "Wire `elu remove`",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T14:30:16.518769450Z",
-  "updated_at": "2026-04-25T14:30:16.518769450Z",
+  "updated_at": "2026-04-25T14:47:28.225445076Z",
   "tags": [
     "workflow:code-task"
   ],

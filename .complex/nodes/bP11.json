@@ -1,17 +1,17 @@
 {
   "id": "bP11",
   "title": "Lockfile lifecycle in CLI — `elu lock` + `--locked` semantics",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "claude",
   "created_at": "2026-04-25T14:29:34.332120753Z",
-  "updated_at": "2026-04-25T14:44:43.114264591Z",
+  "updated_at": "2026-04-25T14:47:28.225443653Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW.wX0h",
   "meta": {
-    "_reason": "starting slice 1: lockfile lifecycle in CLI"
+    "_reason": "elu lock dispatch + walk-up + --locked semantics; install/stack lockfile reading deferred to MqEx"
   },
   "edges": [
     {

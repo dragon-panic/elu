@@ -1,11 +1,11 @@
 {
   "id": "jUbi",
   "title": "Wire `elu update`",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T14:30:17.507085957Z",
-  "updated_at": "2026-04-25T14:30:17.507085957Z",
+  "updated_at": "2026-04-25T14:47:28.225445246Z",
   "tags": [
     "workflow:code-task"
   ],
