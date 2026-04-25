@@ -71,6 +71,14 @@ pub fn run(ctx: &GlobalCtx, args: InstallArgs) -> Result<(), CliError> {
         .block_on(resolve(&roots, &source, lockfile_on_disk.as_ref(), Some(&store)))
         .map_err(|e| CliError::Resolution(e.to_string()))?;
 
+    if ctx.locked
+        && let Some(diff) = lockfile_diff(lockfile_on_disk.as_ref(), &resolution)
+    {
+        return Err(CliError::Lockfile(format!(
+            "--locked: install would change the lockfile ({diff})",
+        )));
+    }
+
     rt.block_on(execute_fetch_plan(
         &client,
         &registry_source,
@@ -222,4 +230,44 @@ fn parse_manifest(bytes: &[u8]) -> Result<Manifest, CliError> {
 
 fn split_pkg_str(p: &elu_manifest::types::PackageRef) -> (&str, &str) {
     p.as_str().split_once('/').expect("PackageRef invariant: contains '/'")
+}
+
+/// If `--locked` would refuse this resolution, return a short human-readable
+/// reason; `None` means the resolution matches the lockfile exactly.
+/// Refuse if any resolved manifest is absent from the lockfile, or if its
+/// hash differs from the lockfile entry. (Extra entries in the lockfile that
+/// the resolution doesn't touch are fine — they may belong to other roots.)
+fn lockfile_diff(
+    lockfile: Option<&elu_resolver::lockfile::Lockfile>,
+    resolution: &Resolution,
+) -> Option<String> {
+    let Some(lock) = lockfile else {
+        if resolution.manifests.is_empty() {
+            return None;
+        }
+        return Some(format!(
+            "no lockfile on disk; resolution introduces {} pin(s)",
+            resolution.manifests.len()
+        ));
+    };
+    for m in &resolution.manifests {
+        let (ns, name) = split_pkg_str(&m.package);
+        match lock.lookup(ns, name) {
+            None => {
+                return Some(format!(
+                    "{ns}/{name}@{} is a new pin not in the lockfile",
+                    m.manifest.package.version
+                ));
+            }
+            Some(entry) => {
+                if entry.hash != m.hash {
+                    return Some(format!(
+                        "{ns}/{name} hash differs: lockfile {} vs resolution {}",
+                        entry.hash, m.hash
+                    ));
+                }
+            }
+        }
+    }
+    None
 }
