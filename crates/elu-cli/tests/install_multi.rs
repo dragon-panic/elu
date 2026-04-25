@@ -167,3 +167,178 @@ fn install_pulls_transitive_deps() {
         .expect("dep.txt should exist after install (transitive dep was fetched)");
     assert_eq!(dep_file, "from-dep");
 }
+
+const A_MANIFEST: &str = r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "a"
+version     = "0.1.0"
+kind        = "native"
+description = "independent package A"
+
+[[layer]]
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
+"#;
+
+const C_MANIFEST: &str = r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "c"
+version     = "0.1.0"
+kind        = "native"
+description = "independent package C"
+
+[[layer]]
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
+"#;
+
+#[test]
+fn install_accepts_multiple_independent_refs() {
+    let pub_store = TempDir::new().unwrap();
+
+    let a_proj = TempDir::new().unwrap();
+    write_project(&a_proj, A_MANIFEST, "a.txt", "from-a");
+    let c_proj = TempDir::new().unwrap();
+    write_project(&c_proj, C_MANIFEST, "c.txt", "from-c");
+
+    build(&a_proj, &pub_store);
+    build(&c_proj, &pub_store);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let registry_url = rt.block_on(async {
+        let backend = spawn_blob_backend().await;
+        let state = Arc::new(AppState {
+            db: SqliteRegistryDb::open_in_memory().unwrap(),
+            blob_backend: backend as Arc<dyn BlobBackend>,
+        });
+        spawn_registry(state).await
+    });
+
+    publish(&a_proj, &pub_store, &registry_url, "ns/a@0.1.0");
+    publish(&c_proj, &pub_store, &registry_url, "ns/c@0.1.0");
+
+    let sub_project = TempDir::new().unwrap();
+    let sub_store = TempDir::new().unwrap();
+    let out_path = sub_project.path().join("installed");
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            sub_store.path().to_str().unwrap(),
+            "--registry",
+            registry_url.as_str(),
+            "install",
+            "ns/a@0.1.0",
+            "ns/c@0.1.0",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .current_dir(sub_project.path())
+        .assert()
+        .success();
+
+    assert_eq!(
+        fs::read_to_string(out_path.join("a.txt")).expect("a.txt"),
+        "from-a"
+    );
+    assert_eq!(
+        fs::read_to_string(out_path.join("c.txt")).expect("c.txt"),
+        "from-c"
+    );
+}
+
+#[test]
+fn install_locked_rejects_when_resolution_changes_lockfile() {
+    // Publish ns/a + ns/c. Write a stale lockfile that pins only ns/a.
+    // `elu install ns/a ns/c --locked` must refuse: ns/c is a new pin the
+    // lockfile doesn't cover. Exit code 7 = CliError::Lockfile.
+    let pub_store = TempDir::new().unwrap();
+
+    let a_proj = TempDir::new().unwrap();
+    write_project(&a_proj, A_MANIFEST, "a.txt", "from-a");
+    let c_proj = TempDir::new().unwrap();
+    write_project(&c_proj, C_MANIFEST, "c.txt", "from-c");
+
+    build(&a_proj, &pub_store);
+    build(&c_proj, &pub_store);
+
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let registry_url = rt.block_on(async {
+        let backend = spawn_blob_backend().await;
+        let state = Arc::new(AppState {
+            db: SqliteRegistryDb::open_in_memory().unwrap(),
+            blob_backend: backend as Arc<dyn BlobBackend>,
+        });
+        spawn_registry(state).await
+    });
+
+    publish(&a_proj, &pub_store, &registry_url, "ns/a@0.1.0");
+    publish(&c_proj, &pub_store, &registry_url, "ns/c@0.1.0");
+
+    // Subscriber project with elu.toml (so lockfile discovery walks here)
+    // and a stale elu.lock that names only ns/a.
+    let sub_project = TempDir::new().unwrap();
+    let sub_store = TempDir::new().unwrap();
+    fs::write(
+        sub_project.path().join("elu.toml"),
+        r#"schema = 1
+
+[package]
+namespace   = "ns"
+name        = "subscriber"
+version     = "0.0.0"
+kind        = "native"
+description = "subscriber root"
+"#,
+    )
+    .unwrap();
+    // Lockfile pins a NEUTRAL package (ns/unrelated) the resolver won't
+    // touch — install only walks ns/a + ns/c. The --locked check fires
+    // post-resolution: ns/a and ns/c are both new pins, so it refuses.
+    fs::write(
+        sub_project.path().join("elu.lock"),
+        r#"schema = 1
+
+[[package]]
+namespace = "ns"
+name = "unrelated"
+version = "0.1.0"
+hash = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+"#,
+    )
+    .unwrap();
+
+    let out_path = sub_project.path().join("installed");
+    let assert = Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            sub_store.path().to_str().unwrap(),
+            "--registry",
+            registry_url.as_str(),
+            "--locked",
+            "install",
+            "ns/a@0.1.0",
+            "ns/c@0.1.0",
+            "-o",
+            out_path.to_str().unwrap(),
+        ])
+        .current_dir(sub_project.path())
+        .assert()
+        .failure();
+    assert_eq!(assert.get_output().status.code(), Some(7));
+}
