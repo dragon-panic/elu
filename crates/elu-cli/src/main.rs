@@ -4,6 +4,7 @@ mod cli;
 mod cmd;
 mod error;
 mod global;
+mod lockfile;
 mod manifest_reader;
 mod output;
 mod refs_parse;
