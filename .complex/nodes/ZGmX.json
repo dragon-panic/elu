@@ -1,13 +1,16 @@
 {
   "id": "ZGmX",
   "title": "Multi-ref `stack`",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-25T14:30:52.536634292Z",
-  "updated_at": "2026-04-25T17:43:27.637472190Z",
+  "updated_at": "2026-04-25T19:11:17.905287396Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "WKIW.wX0h"
+  "parent": "WKIW.wX0h",
+  "meta": {
+    "_reason": "multi-ref stack landed; package-manager workflow vertical complete"
+  }
 }
