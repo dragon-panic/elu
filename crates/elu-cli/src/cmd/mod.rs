@@ -3,6 +3,7 @@ use crate::error::CliError;
 use crate::global::GlobalCtx;
 use crate::output::emit_error;
 
+pub mod add;
 pub mod build;
 pub mod check;
 pub mod completion;
@@ -27,7 +28,7 @@ pub fn dispatch(cli: Cli) -> Result<(), CliError> {
     let ctx = GlobalCtx::from_args(&cli.global);
     let result = match cli.command {
         Command::Install(a) => install::run(&ctx, a),
-        Command::Add(a) => stub::run("add", "WKIW.wX0h", "resolver", &ctx, a),
+        Command::Add(a) => add::run(&ctx, a),
         Command::Remove(a) => stub::run("remove", "WKIW.wX0h", "resolver", &ctx, a),
         Command::Lock(a) => lock::run(&ctx, a),
         Command::Update(a) => stub::run("update", "WKIW.wX0h", "resolver", &ctx, a),
