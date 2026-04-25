@@ -36,16 +36,16 @@ fn remove_strips_dependency_from_manifest() {
     assert!(
         fs::read_to_string(env.project_path().join("elu.toml"))
             .unwrap()
-            .contains("ns/demo"),
-        "fixture precondition: ns/demo should be a dep before remove",
+            .contains("ref = \"ns/demo\""),
+        "fixture precondition: ns/demo dep entry should be present",
     );
 
     env.elu_in_project(&["remove", "ns/demo"]).assert().success();
 
     let manifest = fs::read_to_string(env.project_path().join("elu.toml")).unwrap();
     assert!(
-        !manifest.contains("ns/demo"),
-        "manifest still contains ns/demo after remove:\n{manifest}",
+        !manifest.contains("ref = \"ns/demo\""),
+        "manifest still has ns/demo dep entry after remove:\n{manifest}",
     );
 }
 
@@ -103,8 +103,8 @@ fn remove_walks_up_from_subdirectory() {
 
     let manifest = fs::read_to_string(env.project_path().join("elu.toml")).unwrap();
     assert!(
-        !manifest.contains("ns/demo"),
-        "project-root manifest still contains ns/demo:\n{manifest}",
+        !manifest.contains("ref = \"ns/demo\""),
+        "project-root manifest still has ns/demo dep entry:\n{manifest}",
     );
 }
 
