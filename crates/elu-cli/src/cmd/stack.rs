@@ -1,14 +1,12 @@
 use camino::Utf8Path;
 use elu_hooks::HookMode as LayersHookMode;
 use elu_stacker::{stage, stack as layers_stack};
-use elu_manifest::types::{PackageRef, VersionSpec};
 use elu_outputs::{
     Compression, DirOpts, FormatName, Options, Outcome, Qcow2Opts, TarOpts, infer_compression,
     infer_format, materialize, qcow2,
 };
 use elu_resolver::{OfflineSource, Resolution, RootRef, resolve};
 use elu_store::store::{RefFilter, Store};
-use semver::VersionReq;
 
 use crate::cli::{
     CompressionKind, HookMode as CliHookMode, OutputFormat, StackArgs,
@@ -16,13 +14,12 @@ use crate::cli::{
 use crate::error::CliError;
 use crate::global::GlobalCtx;
 use crate::output::emit_event;
-use crate::refs_parse::{Ref, parse_ref};
+use crate::refs_parse::parse_dep_spec;
 
 pub fn run(ctx: &GlobalCtx, args: StackArgs) -> Result<(), CliError> {
-    if args.refs.len() != 1 {
+    if args.refs.is_empty() {
         return Err(CliError::Usage(
-            "stack accepts exactly one ref in v1 (multi-ref stacking will arrive with `install`)"
-                .into(),
+            "stack requires at least one ref (`<ns>/<name>[@<version>]`)".into(),
         ));
     }
 
@@ -34,7 +31,14 @@ pub fn run(ctx: &GlobalCtx, args: StackArgs) -> Result<(), CliError> {
         ));
     }
     let store = ctx.open_store()?;
-    let root = build_root_ref(&args.refs[0])?;
+    let roots: Vec<RootRef> = args
+        .refs
+        .iter()
+        .map(|raw| {
+            let (package, version) = parse_dep_spec(raw)?;
+            Ok(RootRef { package, version })
+        })
+        .collect::<Result<Vec<_>, CliError>>()?;
     let source = build_offline_source(&store)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -42,7 +46,7 @@ pub fn run(ctx: &GlobalCtx, args: StackArgs) -> Result<(), CliError> {
         .build()
         .map_err(|e| CliError::Generic(format!("tokio runtime: {e}")))?;
     let resolution: Resolution = runtime
-        .block_on(resolve(&[root], &source, None, Some(&store)))
+        .block_on(resolve(&roots, &source, None, Some(&store)))
         .map_err(|e| CliError::Resolution(e.to_string()))?;
 
     if !resolution.fetch_plan.items.is_empty() {
@@ -147,7 +151,8 @@ fn run_qcow2(
         .base
         .as_ref()
         .ok_or_else(|| CliError::Usage("qcow2 output requires --base".into()))?;
-    let base_root = build_root_ref(base_ref)?;
+    let (package, version) = parse_dep_spec(base_ref)?;
+    let base_root = RootRef { package, version };
     let source = build_offline_source(store)?;
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -289,29 +294,6 @@ fn dir_bytes(root: &Utf8Path) -> std::io::Result<u64> {
         }
     }
     Ok(total)
-}
-
-fn build_root_ref(s: &str) -> Result<RootRef, CliError> {
-    match parse_ref(s)? {
-        Ref::Hash(hash) => {
-            let package: PackageRef = "local/root".parse().map_err(CliError::Usage)?;
-            Ok(RootRef {
-                package,
-                version: VersionSpec::Pinned(hash),
-            })
-        }
-        Ref::Exact { namespace, name, version } => {
-            let package: PackageRef = format!("{namespace}/{name}")
-                .parse()
-                .map_err(CliError::Usage)?;
-            let req = VersionReq::parse(&format!("={version}"))
-                .map_err(|e| CliError::Usage(format!("version req: {e}")))?;
-            Ok(RootRef {
-                package,
-                version: VersionSpec::Range(req),
-            })
-        }
-    }
 }
 
 fn build_offline_source(store: &dyn Store) -> Result<OfflineSource, CliError> {
