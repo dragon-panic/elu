@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 elu-manifest = { path = "../elu-manifest" }
 elu-store = { path = "../elu-store" }
-elu-registry = { path = "../elu-registry" }
 
 semver = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
