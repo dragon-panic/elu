@@ -1,16 +1,16 @@
 {
   "id": "jUbi",
   "title": "Wire `elu update`",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "claude",
   "created_at": "2026-04-25T14:30:17.507085957Z",
-  "updated_at": "2026-04-25T15:49:22.289836241Z",
+  "updated_at": "2026-04-25T15:51:09.864708098Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW.wX0h",
   "meta": {
-    "_reason": "starting slice 4: elu update"
+    "_reason": "update wiring complete"
   }
 }
