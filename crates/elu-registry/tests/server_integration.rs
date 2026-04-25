@@ -503,7 +503,7 @@ diff_id = "{diff_id}"
 size = 200
 
 [[dependency]]
-reference = "acme/internal-lib"
+ref = "acme/internal-lib"
 version = "*"
 "#
     );
