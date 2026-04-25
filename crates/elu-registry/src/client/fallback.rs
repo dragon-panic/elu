@@ -101,9 +101,48 @@ impl RegistryClient {
     /// Returns the first successful result, or the last error.
     pub async fn fetch_package_by_hash(
         &self,
-        _hash: &elu_store::hash::ManifestHash,
+        hash: &elu_store::hash::ManifestHash,
     ) -> Result<PackageRecord, RegistryError> {
-        unimplemented!("fetch_package_by_hash — implemented in green slice")
+        let path = format!("api/v1/manifests/{hash}");
+        let mut last_err = RegistryError::InvalidManifest {
+            reason: "no registries configured".into(),
+        };
+
+        for base in &self.registries {
+            let url = base.join(&path).map_err(|e| RegistryError::BlobBackend(e.to_string()))?;
+
+            match self.http.get(url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    let record: PackageRecord = resp
+                        .json()
+                        .await
+                        .map_err(|e| RegistryError::InvalidManifest {
+                            reason: format!("failed to parse package record: {e}"),
+                        })?;
+                    return Ok(record);
+                }
+                Ok(resp) if resp.status().as_u16() == 404 => {
+                    last_err = RegistryError::ManifestHashNotFound {
+                        hash: hash.to_string(),
+                    };
+                    continue;
+                }
+                Ok(resp) => {
+                    last_err = RegistryError::BlobBackend(format!(
+                        "registry returned status {}",
+                        resp.status()
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    last_err =
+                        RegistryError::BlobBackend(format!("failed to connect to registry: {e}"));
+                    continue;
+                }
+            }
+        }
+
+        Err(last_err)
     }
 
     /// Fetch raw bytes from a URL (for manifest or blob downloads).
