@@ -1,17 +1,17 @@
 {
   "id": "MqEx",
   "title": "Multi-ref `install` + transitive registry resolution",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "claude",
   "created_at": "2026-04-25T14:30:42.728748821Z",
-  "updated_at": "2026-04-25T16:51:53.411275680Z",
+  "updated_at": "2026-04-25T17:43:27.637470997Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW.wX0h",
   "meta": {
-    "_reason": "starting MqEx"
+    "_reason": "multi-ref install + transitive registry resolution + --locked propagation landed; closes the package-manager workflow vertical"
   },
   "edges": [
     {

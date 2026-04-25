@@ -1,11 +1,11 @@
 {
   "id": "ZGmX",
   "title": "Multi-ref `stack`",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T14:30:52.536634292Z",
-  "updated_at": "2026-04-25T14:30:52.536634292Z",
+  "updated_at": "2026-04-25T17:43:27.637472190Z",
   "tags": [
     "workflow:code-task"
   ],
