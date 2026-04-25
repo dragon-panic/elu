@@ -547,3 +547,133 @@ version = "*"
 
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }
+
+// ---- WKIW.kqhq: GET /api/v1/manifests/:hash ----
+
+#[tokio::test]
+async fn get_by_manifest_hash_returns_same_record_as_named_lookup() {
+    let state = test_app();
+    let manifest_blob_id = ManifestHash(test_hash(0x11));
+    let record = PackageRecord {
+        namespace: "acme".into(),
+        name: "tool".into(),
+        version: "1.0.0".into(),
+        manifest_blob_id: manifest_blob_id.clone(),
+        manifest_url: Url::parse("https://blobs.example/m1").unwrap(),
+        kind: Some("native".into()),
+        description: Some("Tool".into()),
+        tags: vec![],
+        layers: vec![LayerRecord {
+            diff_id: DiffId(test_hash(0xaa)),
+            blob_id: BlobId(test_hash(0xbb)),
+            url: Url::parse("https://blobs.example/l1").unwrap(),
+            size_compressed: 1,
+            size_uncompressed: 2,
+        }],
+        publisher: "alice".into(),
+        published_at: "2026-01-01T00:00:00Z".into(),
+        signature: None,
+        visibility: Visibility::Public,
+    };
+    state.db.put_version(&record).unwrap();
+
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/manifests/{manifest_blob_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let by_hash: PackageRecord = serde_json::from_slice(&body).unwrap();
+
+    let app = router(state.clone());
+    let named = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/packages/acme/tool/1.0.0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let named_body = named.into_body().collect().await.unwrap().to_bytes();
+    let by_named: PackageRecord = serde_json::from_slice(&named_body).unwrap();
+
+    assert_eq!(by_hash, by_named);
+}
+
+#[tokio::test]
+async fn get_by_manifest_hash_unknown_returns_404() {
+    let state = test_app();
+    let unknown = ManifestHash(test_hash(0x99));
+
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/manifests/{unknown}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn get_by_manifest_hash_hides_private_from_unauthenticated() {
+    let state = test_app();
+    let manifest_blob_id = ManifestHash(test_hash(0x33));
+    let record = PackageRecord {
+        namespace: "acme-corp".into(),
+        name: "secret".into(),
+        version: "1.0.0".into(),
+        manifest_blob_id: manifest_blob_id.clone(),
+        manifest_url: Url::parse("https://blobs.example/m1").unwrap(),
+        kind: Some("native".into()),
+        description: Some("Secret".into()),
+        tags: vec![],
+        layers: vec![],
+        publisher: "acme-corp".into(),
+        published_at: "2026-01-01T00:00:00Z".into(),
+        signature: None,
+        visibility: Visibility::Private,
+    };
+    state.db.put_version(&record).unwrap();
+
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/manifests/{manifest_blob_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let app = router(state.clone());
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/v1/manifests/{manifest_blob_id}"))
+                .header("Authorization", "Bearer acme-corp")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
