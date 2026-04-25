@@ -97,6 +97,15 @@ impl RegistryClient {
         Err(last_err)
     }
 
+    /// Fetch a package record by manifest hash, trying each registry in order.
+    /// Returns the first successful result, or the last error.
+    pub async fn fetch_package_by_hash(
+        &self,
+        _hash: &elu_store::hash::ManifestHash,
+    ) -> Result<PackageRecord, RegistryError> {
+        unimplemented!("fetch_package_by_hash — implemented in green slice")
+    }
+
     /// Fetch raw bytes from a URL (for manifest or blob downloads).
     pub async fn fetch_bytes(&self, url: &Url) -> Result<Vec<u8>, RegistryError> {
         let resp = self

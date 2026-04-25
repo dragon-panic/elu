@@ -3,7 +3,11 @@ use std::sync::Arc;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::routing::get;
+use elu_registry::blob_store::LocalBlobBackend;
 use elu_registry::client::fallback::RegistryClient;
+use elu_registry::db::SqliteRegistryDb;
+use elu_registry::error::RegistryError;
+use elu_registry::server::{AppState, router};
 use elu_registry::types::*;
 use elu_store::hash::{BlobId, DiffId, Hash, HashAlgo, ManifestHash};
 use tokio::net::TcpListener;
@@ -101,4 +105,46 @@ async fn single_registry_returns_package() {
     let client = RegistryClient::new(vec![url]);
     let result = client.fetch_package("acme", "widget", "1.0.0").await;
     assert!(result.is_ok());
+}
+
+// ---- WKIW.kqhq: client fetch_package_by_hash ----
+
+async fn spawn_real_registry_with(record: PackageRecord) -> (Url, ManifestHash) {
+    let db = SqliteRegistryDb::open_in_memory().unwrap();
+    let hash = record.manifest_blob_id.clone();
+    db.put_version(&record).unwrap();
+    let blob_backend = Arc::new(LocalBlobBackend::new(
+        Url::parse("http://localhost:9090/").unwrap(),
+    ));
+    let state = Arc::new(AppState { db, blob_backend });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let app = router(state);
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let url = Url::parse(&format!("http://127.0.0.1:{}/", addr.port())).unwrap();
+    (url, hash)
+}
+
+#[tokio::test]
+async fn fetch_package_by_hash_returns_record() {
+    let (url, hash) = spawn_real_registry_with(sample_record()).await;
+    let client = RegistryClient::new(vec![url]);
+    let record = client.fetch_package_by_hash(&hash).await.unwrap();
+    assert_eq!(record.namespace, "acme");
+    assert_eq!(record.name, "widget");
+    assert_eq!(record.manifest_blob_id, hash);
+}
+
+#[tokio::test]
+async fn fetch_package_by_hash_unknown_errors_as_not_found() {
+    let (url, _) = spawn_real_registry_with(sample_record()).await;
+    let client = RegistryClient::new(vec![url]);
+    let unknown = ManifestHash(test_hash(0xff));
+    let err = client.fetch_package_by_hash(&unknown).await.unwrap_err();
+    assert!(
+        matches!(err, RegistryError::ManifestHashNotFound { .. }),
+        "expected ManifestHashNotFound, got {err:?}"
+    );
 }
