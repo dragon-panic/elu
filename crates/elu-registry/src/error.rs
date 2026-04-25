@@ -16,6 +16,9 @@ pub enum RegistryError {
         version: String,
     },
 
+    #[error("manifest hash not found: {hash}")]
+    ManifestHashNotFound { hash: String },
+
     #[error("package not found: {namespace}/{name}")]
     PackageNotFound { namespace: String, name: String },
 

@@ -1,15 +1,18 @@
 {
   "id": "MqEx",
   "title": "Multi-ref `install` + transitive registry resolution",
-  "state": "ready",
+  "state": "claimed",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-25T14:30:42.728748821Z",
-  "updated_at": "2026-04-25T14:47:28.225445407Z",
+  "updated_at": "2026-04-25T16:51:53.411275680Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW.wX0h",
+  "meta": {
+    "_reason": "starting MqEx"
+  },
   "edges": [
     {
       "to": "ZGmX",

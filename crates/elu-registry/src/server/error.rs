@@ -11,6 +11,7 @@ impl IntoResponse for HttpError {
         let (status, msg) = match &self.0 {
             RegistryError::VersionExists { .. } => (StatusCode::CONFLICT, self.0.to_string()),
             RegistryError::VersionNotFound { .. } => (StatusCode::NOT_FOUND, self.0.to_string()),
+            RegistryError::ManifestHashNotFound { .. } => (StatusCode::NOT_FOUND, self.0.to_string()),
             RegistryError::PackageNotFound { .. } => (StatusCode::NOT_FOUND, self.0.to_string()),
             RegistryError::SessionNotFound { .. } => (StatusCode::NOT_FOUND, self.0.to_string()),
             RegistryError::MissingBlobs { .. } => {

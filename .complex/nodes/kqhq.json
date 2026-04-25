@@ -1,0 +1,23 @@
+{
+  "id": "kqhq",
+  "title": "Registry: GET /api/v1/manifests/:hash for hash-keyed manifest lookup",
+  "state": "claimed",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-04-25T17:05:07.393572977Z",
+  "updated_at": "2026-04-25T17:06:19.940127824Z",
+  "filed_by": "claude",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "WKIW.Oe2G",
+  "meta": {
+    "_reason": "starting registry hash endpoint"
+  },
+  "edges": [
+    {
+      "to": "MqEx",
+      "type": "blocks"
+    }
+  ]
+}

@@ -642,6 +642,29 @@ impl SqliteRegistryDb {
         Ok(results)
     }
 
+    /// Look up a committed package version by its manifest hash. Returns the
+    /// same `PackageRecord` shape as `get_version`. Errors with
+    /// `ManifestHashNotFound` if no row references that hash.
+    pub fn get_version_by_manifest_hash(
+        &self,
+        hash: &ManifestHash,
+    ) -> Result<PackageRecord, RegistryError> {
+        unimplemented!("get_version_by_manifest_hash — implemented in green slice")
+    }
+
+    /// Hash-keyed variant of `get_version_with_visibility`. Hides private
+    /// packages from unauthenticated callers (returns `ManifestHashNotFound`,
+    /// not 403, to avoid leaking existence).
+    pub fn get_version_by_manifest_hash_with_visibility(
+        &self,
+        hash: &ManifestHash,
+        authenticated_ns: Option<&str>,
+    ) -> Result<PackageRecord, RegistryError> {
+        unimplemented!(
+            "get_version_by_manifest_hash_with_visibility — implemented in green slice"
+        )
+    }
+
     /// Get version with visibility enforcement.
     /// Private packages are only returned if authenticated_ns matches the package namespace.
     pub fn get_version_with_visibility(
@@ -803,4 +826,90 @@ pub struct PublishSession {
     pub publisher: String,
     pub visibility: String,
     pub created_at: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use elu_store::hash::{Hash, HashAlgo};
+
+    fn h(byte: u8) -> ManifestHash {
+        ManifestHash(Hash::new(HashAlgo::Sha256, [byte; 32]))
+    }
+
+    fn blob_h(byte: u8) -> BlobId {
+        BlobId(Hash::new(HashAlgo::Sha256, [byte; 32]))
+    }
+
+    fn diff_h(byte: u8) -> DiffId {
+        DiffId(Hash::new(HashAlgo::Sha256, [byte; 32]))
+    }
+
+    fn record(ns: &str, name: &str, version: &str, manifest_hash: ManifestHash, vis: Visibility) -> PackageRecord {
+        PackageRecord {
+            namespace: ns.into(),
+            name: name.into(),
+            version: version.into(),
+            manifest_blob_id: manifest_hash,
+            manifest_url: Url::parse("http://example.test/m").unwrap(),
+            kind: Some("native".into()),
+            description: Some("test".into()),
+            tags: vec![],
+            layers: vec![LayerRecord {
+                diff_id: diff_h(0xaa),
+                blob_id: blob_h(0xbb),
+                url: Url::parse("http://example.test/l").unwrap(),
+                size_compressed: 1,
+                size_uncompressed: 2,
+            }],
+            publisher: "alice".into(),
+            published_at: "2026-04-25T00:00:00Z".into(),
+            signature: None,
+            visibility: vis,
+        }
+    }
+
+    #[test]
+    fn get_version_by_manifest_hash_returns_same_record_as_named_lookup() {
+        let db = SqliteRegistryDb::open_in_memory().unwrap();
+        let hash = h(0x11);
+        let r = record("ns", "demo", "0.1.0", hash.clone(), Visibility::Public);
+        db.put_version(&r).unwrap();
+
+        let by_named = db.get_version("ns", "demo", "0.1.0").unwrap();
+        let by_hash = db.get_version_by_manifest_hash(&hash).unwrap();
+
+        assert_eq!(by_named, by_hash);
+    }
+
+    #[test]
+    fn get_version_by_manifest_hash_unknown_hash_errors() {
+        let db = SqliteRegistryDb::open_in_memory().unwrap();
+        let err = db.get_version_by_manifest_hash(&h(0x99)).unwrap_err();
+        assert!(
+            matches!(err, RegistryError::ManifestHashNotFound { .. }),
+            "expected ManifestHashNotFound, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn visibility_hides_private_from_unauthenticated() {
+        let db = SqliteRegistryDb::open_in_memory().unwrap();
+        let hash = h(0x22);
+        let r = record("acme", "secret", "0.1.0", hash.clone(), Visibility::Private);
+        db.put_version(&r).unwrap();
+
+        let err = db
+            .get_version_by_manifest_hash_with_visibility(&hash, None)
+            .unwrap_err();
+        assert!(
+            matches!(err, RegistryError::ManifestHashNotFound { .. }),
+            "private package must look like 'not found' to anonymous, got: {err:?}"
+        );
+
+        let ok = db
+            .get_version_by_manifest_hash_with_visibility(&hash, Some("acme"))
+            .unwrap();
+        assert_eq!(ok.namespace, "acme");
+    }
 }

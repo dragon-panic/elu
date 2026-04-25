@@ -86,6 +86,7 @@ impl From<RegistryError> for CliError {
             | RegistryError::NamespaceAlreadyClaimed { .. }
             | RegistryError::ReservedNamespace { .. } => CliError::Generic(e.to_string()),
             RegistryError::VersionNotFound { .. }
+            | RegistryError::ManifestHashNotFound { .. }
             | RegistryError::PackageNotFound { .. }
             | RegistryError::SessionNotFound { .. }
             | RegistryError::NamespaceNotFound { .. }
