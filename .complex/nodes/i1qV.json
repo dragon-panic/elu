@@ -1,11 +1,11 @@
 {
   "id": "i1qV",
   "title": "Pull stack orchestration out of `elu-layers`",
-  "state": "latent",
+  "state": "ready",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T16:14:55.667332691Z",
-  "updated_at": "2026-04-25T16:14:55.667332691Z",
+  "updated_at": "2026-04-25T16:23:27.409196901Z",
   "tags": [
     "workflow:code-task"
   ],
