@@ -641,6 +641,7 @@ dependencies = [
  "base64",
  "camino",
  "elu-manifest",
+ "elu-resolver",
  "elu-store",
  "http-body-util",
  "reqwest",

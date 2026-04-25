@@ -1,87 +1,91 @@
-//! `elu install` — fetch a package from the configured registry into the
-//! local store, then materialize it into an output directory.
+//! `elu install <ref>...` — resolve a set of refs against a hybrid
+//! (store + registry) source, fetch the full closure into the local
+//! store, and stack into `--out` (default `./elu-out`).
 //!
-//! Slice 3 of the registry round-trip arc (cx SnIt). v1 is intentionally
-//! narrow: a single explicit `<ns>/<name>@<version>` ref is fetched from the
-//! registry and stacked into `--out` (default `./elu-out`). Range refs and
-//! transitive registry resolution land in later slices; if the resolver
-//! still wants more after install populates the store, install errors out
-//! pointing at that gap.
+//! Slice 5 of the resolver-driven CLI surface arc (cx WKIW.MqEx).
+//! Replaces the v1 single-ref-with-no-deps implementation.
 
 use std::io::Cursor;
+use std::sync::Arc;
 
 use camino::Utf8PathBuf;
 use elu_hooks::HookMode as LayersHookMode;
-use elu_stacker::stack as layers_stack;
-use elu_manifest::types::{PackageRef, VersionSpec};
+use elu_manifest::Manifest;
 use elu_registry::client::fallback::RegistryClient;
 use elu_registry::client::verify::{verify_blob, verify_manifest};
-use elu_registry::types::PackageRecord;
-use elu_resolver::{OfflineSource, Resolution, RootRef, resolve};
+use elu_registry::source::RegistrySource;
+use elu_resolver::source::OfflineSource;
+use elu_resolver::types::{FetchKind, Resolution};
+use elu_resolver::{RootRef, resolve};
+use elu_stacker::stack as layers_stack;
 use elu_store::store::{RefFilter, Store};
-use semver::VersionReq;
 
 use crate::cli::{HookMode as CliHookMode, InstallArgs};
 use crate::error::CliError;
 use crate::global::{DEFAULT_REGISTRY, GlobalCtx};
+use crate::lockfile;
 use crate::output::emit_event;
-use crate::refs_parse::{Ref, parse_ref};
+use crate::refs_parse::parse_dep_spec;
+use crate::source::HybridSource;
 
 pub fn run(ctx: &GlobalCtx, args: InstallArgs) -> Result<(), CliError> {
+    if args.refs.is_empty() {
+        return Err(CliError::Usage(
+            "install requires at least one ref (`<ns>/<name>[@<version>]`)".into(),
+        ));
+    }
     if ctx.offline {
         return Err(CliError::Network(
             "--offline forbids registry contact (install needs to fetch)".into(),
         ));
     }
-    if args.refs.is_empty() {
-        return Err(CliError::Usage(
-            "install requires at least one ref (`<ns>/<name>@<version>`)".into(),
-        ));
-    }
-    if args.refs.len() != 1 {
-        return Err(CliError::Usage(
-            "install accepts exactly one ref in v1 (multi-ref install will land alongside `add`)"
-                .into(),
-        ));
-    }
 
     let registry_str = ctx.registry.clone().unwrap_or_else(|| DEFAULT_REGISTRY.into());
-    let client = RegistryClient::from_env_str(&registry_str)?;
+    let client = Arc::new(RegistryClient::from_env_str(&registry_str)?);
     let store = ctx.open_store()?;
 
-    let r = parse_ref(&args.refs[0])?;
-    let (namespace, name, version) = match r {
-        Ref::Exact { namespace, name, version } => (namespace, name, version),
-        Ref::Hash(_) => {
-            return Err(CliError::Usage(
-                "install requires <ns>/<name>@<version>; raw manifest hashes are not installable yet".into(),
-            ));
-        }
+    let roots: Vec<RootRef> = args
+        .refs
+        .iter()
+        .map(|raw| {
+            let (package, version) = parse_dep_spec(raw)?;
+            Ok(RootRef { package, version })
+        })
+        .collect::<Result<Vec<_>, CliError>>()?;
+
+    let registry_source = Arc::new(RegistrySource::new(client.clone()));
+    let offline = build_offline_source(&store)?;
+    let source = HybridSource::new(offline, Some(registry_source.clone()));
+
+    // Read elu.lock if it exists next to elu.toml; absence is fine.
+    let lockfile_on_disk = match lockfile::find_project_root_from_cwd() {
+        Ok(project) => lockfile::read(&project.lockfile_path())?,
+        Err(_) => None,
     };
 
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|e| CliError::Generic(format!("tokio: {e}")))?;
-    rt.block_on(fetch_into_store(&client, &store, &namespace, &name, &version))?;
-
-    // After fetching, manifest, every layer blob, and the ref are all in
-    // the local store. Resolve from the now-populated store and stack into
-    // the output directory using the same fast-path stack uses.
-    let root = build_root_ref(&namespace, &name, &version)?;
-    let source = build_offline_source(&store)?;
     let resolution: Resolution = rt
-        .block_on(resolve(&[root], &source, None, Some(&store)))
+        .block_on(resolve(&roots, &source, lockfile_on_disk.as_ref(), Some(&store)))
         .map_err(|e| CliError::Resolution(e.to_string()))?;
 
-    if !resolution.fetch_plan.items.is_empty() {
-        // Single-root install populated everything for this ref; if the
-        // resolver still wants more, it's a transitive dep we don't yet
-        // support in v1.
-        return Err(CliError::Resolution(format!(
-            "{} blob(s) still missing after install; transitive registry resolution not yet implemented",
-            resolution.fetch_plan.items.len()
-        )));
+    rt.block_on(execute_fetch_plan(
+        &client,
+        &registry_source,
+        &store,
+        &resolution,
+    ))?;
+
+    // After fetching, persist refs for every resolved manifest so future
+    // resolves from this store can serve them offline.
+    for m in &resolution.manifests {
+        let (ns, name) = split_pkg_str(&m.package);
+        let v = m.manifest.package.version.to_string();
+        store
+            .put_ref(ns, name, &v, &m.hash)
+            .map_err(CliError::from)?;
     }
 
     let out: Utf8PathBuf = args
@@ -100,97 +104,99 @@ pub fn run(ctx: &GlobalCtx, args: InstallArgs) -> Result<(), CliError> {
             ctx,
             &serde_json::json!({
                 "event": "installed",
-                "namespace": namespace,
-                "name": name,
-                "version": version,
+                "refs": args.refs,
+                "packages": resolution.manifests.len(),
                 "out": out.to_string(),
                 "layers": stats.layers,
                 "entries_applied": stats.apply.entries_applied,
             }),
         );
     } else {
+        let names: Vec<String> = resolution
+            .manifests
+            .iter()
+            .map(|m| {
+                format!(
+                    "{}/{}@{}",
+                    m.manifest.package.namespace,
+                    m.manifest.package.name,
+                    m.manifest.package.version
+                )
+            })
+            .collect();
         println!(
-            "installed {namespace}/{name}@{version} → {out} ({} layers, {} entries)",
-            stats.layers, stats.apply.entries_applied
+            "installed {} → {out} ({} layers, {} entries)",
+            names.join(", "),
+            stats.layers,
+            stats.apply.entries_applied
         );
     }
     Ok(())
 }
 
-/// Fetch the manifest and every layer blob for `ns/name@version` from the
-/// registry into the local store. Records the ref. Idempotent: skips items
-/// already present.
-async fn fetch_into_store(
+/// Walk the resolver's fetch plan and pull every missing blob into `store`.
+/// For manifests we have the URL on the FetchItem (resolver populated it from
+/// the registry source); for layers we look up the URL via the registry
+/// source's per-diff_id cache.
+async fn execute_fetch_plan(
     client: &RegistryClient,
+    registry_source: &Arc<RegistrySource>,
     store: &dyn Store,
-    namespace: &str,
-    name: &str,
-    version: &str,
+    resolution: &Resolution,
 ) -> Result<(), CliError> {
-    let record: PackageRecord = client.fetch_package(namespace, name, version).await?;
-
-    // 1. Manifest blob: fetch, verify, persist.
-    let existing_manifest = store
-        .get_manifest(&record.manifest_blob_id)
-        .map_err(CliError::from)?;
-    if existing_manifest.is_none() {
-        let manifest_bytes = client.fetch_bytes(&record.manifest_url).await?;
-        verify_manifest(&manifest_bytes, &record.manifest_blob_id)?;
-        let stored_hash = store
-            .put_manifest(&manifest_bytes)
-            .map_err(CliError::from)?;
-        if stored_hash != record.manifest_blob_id {
-            return Err(CliError::Generic(format!(
-                "manifest hash mismatch after store: expected {}, got {stored_hash}",
-                record.manifest_blob_id,
-            )));
+    for item in &resolution.fetch_plan.items {
+        match &item.kind {
+            FetchKind::Manifest(hash) => {
+                if store.get_manifest(hash).map_err(CliError::from)?.is_some() {
+                    continue;
+                }
+                let url = item
+                    .url
+                    .clone()
+                    .or_else(|| registry_source.manifest_url_for_hash(hash))
+                    .ok_or_else(|| {
+                        CliError::Resolution(format!(
+                            "no download URL for manifest {hash} (resolver source did not record one)",
+                        ))
+                    })?;
+                let bytes = client.fetch_bytes(&url).await?;
+                verify_manifest(&bytes, hash)?;
+                let stored = store.put_manifest(&bytes).map_err(CliError::from)?;
+                if stored != *hash {
+                    return Err(CliError::Generic(format!(
+                        "manifest hash mismatch after store: expected {hash}, got {stored}",
+                    )));
+                }
+            }
+            FetchKind::Layer(diff_id) => {
+                if store.has_diff(diff_id).map_err(CliError::from)? {
+                    continue;
+                }
+                let layer = registry_source.layer_record_for_diff(diff_id).ok_or_else(|| {
+                    CliError::Resolution(format!(
+                        "no layer record for {diff_id}; resolver fetched a manifest but registry source did not cache it",
+                    ))
+                })?;
+                let bytes = client.fetch_bytes(&layer.url).await?;
+                verify_blob(&bytes, &layer.blob_id)?;
+                let mut cursor = Cursor::new(&bytes);
+                let put = store.put_blob(&mut cursor).map_err(CliError::from)?;
+                if put.blob_id != layer.blob_id {
+                    return Err(CliError::Generic(format!(
+                        "layer blob_id mismatch after store: expected {}, got {}",
+                        layer.blob_id, put.blob_id,
+                    )));
+                }
+                if put.diff_id != layer.diff_id {
+                    return Err(CliError::Generic(format!(
+                        "layer diff_id mismatch after store: expected {}, got {}",
+                        layer.diff_id, put.diff_id,
+                    )));
+                }
+            }
         }
     }
-
-    // 2. Layer blobs: fetch any missing, verify, put_blob (which re-derives
-    //    the diff_id from the compressed bytes).
-    for layer in &record.layers {
-        if store.has(&layer.blob_id).map_err(CliError::from)? {
-            continue;
-        }
-        let bytes = client.fetch_bytes(&layer.url).await?;
-        verify_blob(&bytes, &layer.blob_id)?;
-        let mut cursor = Cursor::new(&bytes);
-        let put = store
-            .put_blob(&mut cursor)
-            .map_err(CliError::from)?;
-        if put.blob_id != layer.blob_id {
-            return Err(CliError::Generic(format!(
-                "layer blob_id mismatch after store: expected {}, got {}",
-                layer.blob_id, put.blob_id,
-            )));
-        }
-        if put.diff_id != layer.diff_id {
-            return Err(CliError::Generic(format!(
-                "layer diff_id mismatch after store: expected {}, got {}",
-                layer.diff_id, put.diff_id,
-            )));
-        }
-    }
-
-    // 3. Record the ref so the offline source can find it.
-    store
-        .put_ref(namespace, name, version, &record.manifest_blob_id)
-        .map_err(CliError::from)?;
-
     Ok(())
-}
-
-fn build_root_ref(ns: &str, name: &str, version: &str) -> Result<RootRef, CliError> {
-    let package: PackageRef = format!("{ns}/{name}")
-        .parse()
-        .map_err(CliError::Usage)?;
-    let req = VersionReq::parse(&format!("={version}"))
-        .map_err(|e| CliError::Usage(format!("version req: {e}")))?;
-    Ok(RootRef {
-        package,
-        version: VersionSpec::Range(req),
-    })
 }
 
 fn build_offline_source(store: &dyn Store) -> Result<OfflineSource, CliError> {
@@ -205,11 +211,15 @@ fn build_offline_source(store: &dyn Store) -> Result<OfflineSource, CliError> {
     Ok(source)
 }
 
-fn parse_manifest(bytes: &[u8]) -> Result<elu_manifest::Manifest, CliError> {
-    if let Ok(m) = serde_json::from_slice::<elu_manifest::Manifest>(bytes) {
+fn parse_manifest(bytes: &[u8]) -> Result<Manifest, CliError> {
+    if let Ok(m) = serde_json::from_slice::<Manifest>(bytes) {
         return Ok(m);
     }
     let s = std::str::from_utf8(bytes)
         .map_err(|_| CliError::Store("manifest is not utf-8".into()))?;
     elu_manifest::from_toml_str(s).map_err(CliError::from)
+}
+
+fn split_pkg_str(p: &elu_manifest::types::PackageRef) -> (&str, &str) {
+    p.as_str().split_once('/').expect("PackageRef invariant: contains '/'")
 }

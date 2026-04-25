@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 elu-manifest = { path = "../elu-manifest" }
+elu-resolver = { path = "../elu-resolver" }
 elu-store = { path = "../elu-store" }
 
 axum = "0.8"

@@ -11,15 +11,14 @@ use std::fs;
 use elu_manifest::{Dependency, Manifest, PackageRef, VersionSpec, from_toml_str, to_toml_string};
 use elu_resolver::lockfile::{Lockfile, lock as resolver_lock};
 use elu_resolver::source::OfflineSource;
-use elu_store::hash::ManifestHash;
 use elu_store::store::{RefFilter, Store};
-use semver::VersionReq;
 
 use crate::cli::AddArgs;
 use crate::error::CliError;
 use crate::global::GlobalCtx;
 use crate::lockfile;
 use crate::output::emit_event;
+use crate::refs_parse::parse_dep_spec;
 
 pub fn run(ctx: &GlobalCtx, args: AddArgs) -> Result<(), CliError> {
     let project = lockfile::find_project_root_from_cwd()?;
@@ -103,33 +102,6 @@ fn upsert_dep(manifest: &mut Manifest, reference: PackageRef, version: VersionSp
     }
     manifest.dependencies.push(Dependency { reference, version });
     true
-}
-
-fn parse_dep_spec(input: &str) -> Result<(PackageRef, VersionSpec), CliError> {
-    let (lhs, version_str) = match input.rsplit_once('@') {
-        Some((l, v)) if !v.is_empty() => (l, v),
-        Some(_) => {
-            return Err(CliError::Usage(format!(
-                "ref must be `<ns>/<name>` or `<ns>/<name>@<version>`, got: {input}",
-            )));
-        }
-        None => (input, "*"),
-    };
-    let reference: PackageRef = lhs.parse().map_err(CliError::Usage)?;
-    let version = parse_version_spec(version_str)?;
-    Ok((reference, version))
-}
-
-fn parse_version_spec(s: &str) -> Result<VersionSpec, CliError> {
-    if s == "*" {
-        return Ok(VersionSpec::Any);
-    }
-    if let Ok(h) = s.parse::<ManifestHash>() {
-        return Ok(VersionSpec::Pinned(h));
-    }
-    VersionReq::parse(s)
-        .map(VersionSpec::Range)
-        .map_err(|e| CliError::Usage(format!("version spec `{s}`: {e}")))
 }
 
 fn change_summary(manifest_changed: bool, lock_changed: bool) -> &'static str {

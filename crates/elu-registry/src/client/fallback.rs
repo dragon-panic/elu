@@ -145,6 +145,57 @@ impl RegistryClient {
         Err(last_err)
     }
 
+    /// List versions for a package, trying each registry in order.
+    /// 404 from a registry maps to `PackageNotFound`; the caller can decide
+    /// whether to treat that as "no candidates" or fail loudly.
+    pub async fn list_versions(
+        &self,
+        namespace: &str,
+        name: &str,
+    ) -> Result<crate::types::VersionListResponse, RegistryError> {
+        let path = format!("api/v1/packages/{namespace}/{name}");
+        let mut last_err = RegistryError::InvalidManifest {
+            reason: "no registries configured".into(),
+        };
+
+        for base in &self.registries {
+            let url = base.join(&path).map_err(|e| RegistryError::BlobBackend(e.to_string()))?;
+
+            match self.http.get(url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    let response: crate::types::VersionListResponse = resp
+                        .json()
+                        .await
+                        .map_err(|e| RegistryError::InvalidManifest {
+                            reason: format!("failed to parse version list: {e}"),
+                        })?;
+                    return Ok(response);
+                }
+                Ok(resp) if resp.status().as_u16() == 404 => {
+                    last_err = RegistryError::PackageNotFound {
+                        namespace: namespace.to_string(),
+                        name: name.to_string(),
+                    };
+                    continue;
+                }
+                Ok(resp) => {
+                    last_err = RegistryError::BlobBackend(format!(
+                        "registry returned status {}",
+                        resp.status()
+                    ));
+                    continue;
+                }
+                Err(e) => {
+                    last_err =
+                        RegistryError::BlobBackend(format!("failed to connect to registry: {e}"));
+                    continue;
+                }
+            }
+        }
+
+        Err(last_err)
+    }
+
     /// Fetch raw bytes from a URL (for manifest or blob downloads).
     pub async fn fetch_bytes(&self, url: &Url) -> Result<Vec<u8>, RegistryError> {
         let resp = self

@@ -3,4 +3,5 @@ pub mod client;
 pub mod db;
 pub mod error;
 pub mod server;
+pub mod source;
 pub mod types;

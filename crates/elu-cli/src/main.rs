@@ -8,6 +8,7 @@ mod lockfile;
 mod manifest_reader;
 mod output;
 mod refs_parse;
+mod source;
 
 use crate::error::IntoExitCode;
 

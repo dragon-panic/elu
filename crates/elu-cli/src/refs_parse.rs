@@ -1,6 +1,8 @@
+use elu_manifest::types::{PackageRef, VersionSpec};
 use elu_manifest::{from_toml_str, Manifest};
 use elu_store::hash::ManifestHash;
 use elu_store::store::Store;
+use semver::VersionReq;
 
 use crate::error::CliError;
 
@@ -56,4 +58,35 @@ fn parse_manifest_bytes(bytes: &[u8]) -> Result<Manifest, CliError> {
     let s = std::str::from_utf8(bytes)
         .map_err(|_| CliError::Store("manifest is not utf-8".into()))?;
     from_toml_str(s).map_err(CliError::from)
+}
+
+/// Parse a `<ns>/<name>[@<spec>]` ref into `(PackageRef, VersionSpec)`.
+/// Used by verbs that drive the resolver (`add`, `install`, `stack`):
+/// these accept range / pinned / wildcard specs in addition to exact versions.
+/// The bare `<ns>/<name>` form (no @) defaults to `*`.
+pub fn parse_dep_spec(input: &str) -> Result<(PackageRef, VersionSpec), CliError> {
+    let (lhs, version_str) = match input.rsplit_once('@') {
+        Some((l, v)) if !v.is_empty() => (l, v),
+        Some(_) => {
+            return Err(CliError::Usage(format!(
+                "ref must be `<ns>/<name>` or `<ns>/<name>@<version>`, got: {input}",
+            )));
+        }
+        None => (input, "*"),
+    };
+    let reference: PackageRef = lhs.parse().map_err(CliError::Usage)?;
+    let version = parse_version_spec(version_str)?;
+    Ok((reference, version))
+}
+
+fn parse_version_spec(s: &str) -> Result<VersionSpec, CliError> {
+    if s == "*" {
+        return Ok(VersionSpec::Any);
+    }
+    if let Ok(h) = s.parse::<ManifestHash>() {
+        return Ok(VersionSpec::Pinned(h));
+    }
+    VersionReq::parse(s)
+        .map(VersionSpec::Range)
+        .map_err(|e| CliError::Usage(format!("version spec `{s}`: {e}")))
 }
