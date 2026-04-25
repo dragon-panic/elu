@@ -2,13 +2,15 @@
 //!
 //! Stand up the real axum registry router on a TCP port, stand up the real
 //! `LocalBlobBackend` blob router on another port (verifies hash on PUT and
-//! persists the bytes), seed an `FsStore` with a manifest + one layer blob,
-//! drive `publish_package`, and assert the returned `PackageRecord` matches
-//! the server's DB view and that every blob landed in the backend.
+//! persists the bytes), build a fixture package via `elu build` so the store
+//! holds a real canonical-JSON manifest plus its layer blob, drive
+//! `publish_package`, and assert the returned `PackageRecord` matches the
+//! server's DB view and that every blob landed in the backend.
 
-use std::io::Cursor;
+use std::fs;
 use std::sync::Arc;
 
+use assert_cmd::Command;
 use elu_registry::blob_store::{BlobBackend, LocalBlobBackend};
 use elu_registry::client::fallback::RegistryClient;
 use elu_registry::client::publish::publish_package;
@@ -18,62 +20,78 @@ use elu_store::atomic::FsyncMode;
 use elu_store::fs_store::FsStore;
 use elu_store::hash::BlobId;
 use elu_store::store::Store;
+use tempfile::TempDir;
 use tokio::net::TcpListener;
 use url::Url;
 
-/// Build a minimal valid stored-form manifest TOML for `ns/name@version`
-/// with a single layer of `tar_size` uncompressed bytes at `diff_id`.
-fn make_manifest_toml(
-    ns: &str,
-    name: &str,
-    version: &str,
-    diff_id: &elu_store::hash::DiffId,
-    tar_size: u64,
-) -> String {
-    format!(
+/// Write a minimal `elu.toml` + a single layer file under `project_dir`. The
+/// layer config matches the shape used by `crates/elu-cli/tests/publish.rs`.
+fn make_project(project_dir: &std::path::Path, ns: &str, name: &str, version: &str) {
+    let manifest = format!(
         r#"schema = 1
 
 [package]
-namespace = "{ns}"
-name = "{name}"
-version = "{version}"
-kind = "native"
+namespace   = "{ns}"
+name        = "{name}"
+version     = "{version}"
+kind        = "native"
 description = "Test package"
 
 [[layer]]
-diff_id = "{diff_id}"
-size = {tar_size}
+name    = "files"
+include = ["layers/files/**"]
+strip   = "layers/files/"
 "#
+    );
+    fs::write(project_dir.join("elu.toml"), manifest).unwrap();
+    fs::create_dir_all(project_dir.join("layers/files")).unwrap();
+    fs::write(
+        project_dir.join("layers/files/hello.txt"),
+        b"hello client publish",
     )
+    .unwrap();
 }
 
-/// Build a valid tar archive containing a single file. Returns raw tar bytes
-/// (uncompressed — so blob_id == diff_id when stored).
-fn make_tar_bytes(filename: &str, content: &[u8]) -> Vec<u8> {
-    let mut builder = tar::Builder::new(Vec::new());
-    let mut header = tar::Header::new_gnu();
-    header.set_path(filename).unwrap();
-    header.set_size(content.len() as u64);
-    header.set_mode(0o644);
-    header.set_cksum();
-    builder.append(&header, content).unwrap();
-    builder.into_inner().unwrap()
-}
+/// Build `ns/name@version` via the real `elu build` binary against `store`.
+/// Returns the resulting layer blob id (looked up via the canonical-JSON
+/// manifest the build wrote).
+fn build_package(
+    store: &FsStore,
+    project_dir: &std::path::Path,
+    ns: &str,
+    name: &str,
+    version: &str,
+) -> BlobId {
+    make_project(project_dir, ns, name, version);
 
-/// Seed `store` with a manifest + one plain-tar layer for `ns/name@version`.
-/// Returns the stored `blob_id` of the layer.
-fn seed_package(store: &FsStore, ns: &str, name: &str, version: &str) -> BlobId {
-    // 1. Put the layer blob (plain tar) first so we know diff_id.
-    let tar_bytes = make_tar_bytes("hello.txt", b"hello client publish");
-    let tar_size = tar_bytes.len() as u64;
-    let put = store.put_blob(&mut Cursor::new(tar_bytes)).unwrap();
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.root().as_str(), "build"])
+        .current_dir(project_dir)
+        .assert()
+        .success();
 
-    // 2. Build + store the manifest referencing that diff_id.
-    let manifest_toml = make_manifest_toml(ns, name, version, &put.diff_id, tar_size);
-    let manifest_hash = store.put_manifest(manifest_toml.as_bytes()).unwrap();
-    store.put_ref(ns, name, version, &manifest_hash).unwrap();
-
-    put.blob_id
+    // Read back the canonical-JSON manifest the build wrote and recover the
+    // single layer's blob_id from its diff_id.
+    let manifest_hash = store
+        .get_ref(ns, name, version)
+        .unwrap()
+        .expect("ref present after build");
+    let bytes = store
+        .get_manifest(&manifest_hash)
+        .unwrap()
+        .expect("manifest present after build");
+    let manifest: elu_manifest::Manifest =
+        serde_json::from_slice(&bytes).expect("manifest is canonical JSON");
+    assert_eq!(manifest.layers.len(), 1, "fixture has one layer");
+    let diff_id = manifest.layers[0]
+        .diff_id
+        .as_ref()
+        .expect("stored layer has diff_id");
+    store
+        .resolve_diff(diff_id)
+        .unwrap()
+        .expect("diff resolves to a stored blob")
 }
 
 /// Spawn the registry router on a free TCP port; return its base URL.
@@ -104,15 +122,16 @@ async fn spawn_blob_backend() -> Arc<LocalBlobBackend> {
 
 #[tokio::test]
 async fn publish_package_end_to_end() {
-    // ----- store: seed a manifest + one layer -----
-    let store_dir = tempfile::TempDir::new().unwrap();
+    // ----- store + project: build a real fixture via `elu build` -----
+    let store_dir = TempDir::new().unwrap();
     let store_root = camino::Utf8Path::from_path(store_dir.path()).unwrap();
     let store = FsStore::init_with_fsync(store_root, FsyncMode::Never).unwrap();
+    let project_dir = TempDir::new().unwrap();
 
     let ns = "acme";
     let name = "widget";
     let version = "1.0.0";
-    let blob_id = seed_package(&store, ns, name, version);
+    let blob_id = build_package(&store, project_dir.path(), ns, name, version);
 
     // ----- blob backend (real LocalBlobBackend, real PUT/GET) -----
     let backend = spawn_blob_backend().await;

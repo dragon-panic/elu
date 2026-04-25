@@ -638,6 +638,7 @@ dependencies = [
 name = "elu-registry"
 version = "0.1.0"
 dependencies = [
+ "assert_cmd",
  "axum",
  "base64",
  "camino",
@@ -649,7 +650,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "tar",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
