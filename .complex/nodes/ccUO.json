@@ -1,13 +1,16 @@
 {
   "id": "ccUO",
   "title": "Strip TOML fallback from publish parsers",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-24T23:17:54.286998725Z",
-  "updated_at": "2026-04-24T23:17:54.286998725Z",
+  "updated_at": "2026-04-25T13:58:40.384584741Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "WfTG"
+  "parent": "WfTG",
+  "meta": {
+    "_reason": "TOML fallback gone; production parsers strict JSON"
+  }
 }

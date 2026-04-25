@@ -1,16 +1,16 @@
 {
   "id": "WfTG",
   "title": "Round-trip arc cleanup — finish LocalBlobBackend + close test shims",
-  "state": "ready",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-24T23:13:28.218170160Z",
-  "updated_at": "2026-04-24T23:18:03.128393463Z",
+  "updated_at": "2026-04-25T13:58:40.387558900Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "WKIW",
   "meta": {
-    "_reason": "round-trip cleanup arc filed; 6zSs and GjSE independent and ready"
+    "_reason": "round-trip arc cleanup complete: LocalBlobBackend works, test shims removed, false-green test fixed"
   }
 }
