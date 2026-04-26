@@ -119,6 +119,60 @@ fn refs_set_then_get_via_ls() {
 }
 
 #[test]
+fn refs_rm_removes_existing_ref() {
+    let store = TempDir::new().unwrap();
+    let hash = build_into_store(&store);
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "refs",
+            "set",
+            "ns/pkg/9.9.9",
+            &hash,
+        ])
+        .assert()
+        .success();
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "refs",
+            "rm",
+            "ns/pkg/9.9.9",
+        ])
+        .assert()
+        .success();
+    let out = Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "refs", "ls"])
+        .output()
+        .unwrap();
+    let s = String::from_utf8(out.stdout).unwrap();
+    assert!(!s.contains("ns/pkg/9.9.9"), "removed ref still listed: {s}");
+}
+
+#[test]
+fn refs_rm_missing_exits_three() {
+    let store = TempDir::new().unwrap();
+    build_into_store(&store);
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "refs",
+            "rm",
+            "ns/missing/1.0.0",
+        ])
+        .assert()
+        .failure()
+        .code(3);
+}
+
+#[test]
 fn refs_set_invalid_spec_exits_two() {
     let store = TempDir::new().unwrap();
     Command::cargo_bin("elu")
