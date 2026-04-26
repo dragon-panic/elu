@@ -111,6 +111,45 @@ fn fsck_detects_broken_ref() {
 }
 
 #[test]
+fn fsck_detects_diff_pointing_to_wrong_blob() {
+    // The diff index entry exists and points to a real blob, but the
+    // blob's *content* hashes to a different diff_id. design/store.md:401
+    // says fsck must catch this — decompressing the referenced blob has
+    // to reproduce the diff_id in the path.
+    let (dir, store) = test_store();
+
+    let tar_a = make_tar("a.txt", b"content-a");
+    let gz_a = gzip(&tar_a);
+    let put_a = store.put_blob(&mut &gz_a[..]).unwrap();
+    let tar_b = make_tar("b.txt", b"content-b");
+    let gz_b = gzip(&tar_b);
+    let put_b = store.put_blob(&mut &gz_b[..]).unwrap();
+    assert_ne!(put_a.diff_id, put_b.diff_id);
+
+    // Overwrite the diff index for diff_id_a so it points to blob_b instead.
+    let dir_path = dir.path();
+    let h_a = &put_a.diff_id.0;
+    let diff_path = dir_path
+        .join("diffs")
+        .join(h_a.algo().as_str())
+        .join(h_a.prefix())
+        .join(h_a.rest());
+    std::fs::write(&diff_path, put_b.blob_id.0.to_string()).unwrap();
+
+    let errors = store.fsck().unwrap();
+    let has_mismatch = errors.iter().any(|e| {
+        matches!(
+            e,
+            FsckError::OrphanedDiff { diff_id, .. } if diff_id == &put_a.diff_id.0.to_string()
+        )
+    });
+    assert!(
+        has_mismatch,
+        "fsck must flag the wrongly-pointing diff: {errors:?}",
+    );
+}
+
+#[test]
 fn fsck_repair_removes_orphaned_diff() {
     let (dir, store) = test_store();
     let tar_bytes = make_tar("orphan.txt", b"will have orphaned diff");
