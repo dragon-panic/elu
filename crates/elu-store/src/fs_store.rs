@@ -276,12 +276,10 @@ impl Store for FsStore {
     fn put_blob(&self, reader: &mut dyn Read) -> Result<PutBlob, StoreError> {
         let mut tmp = tempfile::NamedTempFile::new_in(self.tmp_dir().as_std_path())?;
         let mut blob_hasher = Hasher::new();
-        let mut diff_hasher = Hasher::new();
         let mut stored_bytes: u64 = 0;
-        let mut diff_bytes: u64 = 0;
 
-        // Buffer first 512 bytes to detect encoding via magic bytes
-        let mut peek_buf = vec![0u8; 512];
+        // Buffer first 512 bytes to detect encoding via magic bytes.
+        let mut peek_buf = [0u8; 512];
         let mut peeked = 0;
         while peeked < peek_buf.len() {
             match reader.read(&mut peek_buf[peeked..]) {
@@ -294,14 +292,13 @@ impl Store for FsStore {
 
         let encoding = magic::sniff_encoding(peek).ok_or(StoreError::UnknownEncoding)?;
 
-        // Write peeked bytes to tmp and blob hasher
+        // Pass 1: stream the input straight into tmp and the blob hasher.
+        // Memory bounded to peek_buf + buf, regardless of blob size.
         tmp.write_all(peek)?;
         blob_hasher.update(peek);
         stored_bytes += peeked as u64;
 
-        // Read the rest into tmp, hashing for blob_id
         let mut buf = [0u8; 64 * 1024];
-        let mut rest_bytes = Vec::new();
         loop {
             let n = reader.read(&mut buf)?;
             if n == 0 {
@@ -309,53 +306,23 @@ impl Store for FsStore {
             }
             tmp.write_all(&buf[..n])?;
             blob_hasher.update(&buf[..n]);
-            rest_bytes.extend_from_slice(&buf[..n]);
             stored_bytes += n as u64;
         }
+        tmp.as_file_mut().flush()?;
 
-        // Build the full raw bytes for decompression
-        let mut all_bytes = peek.to_vec();
-        all_bytes.extend_from_slice(&rest_bytes);
-
-        // Decompress and hash for diff_id
-        match encoding {
-            BlobEncoding::PlainTar => {
-                // Identity: diff_id == blob_id
-                diff_hasher.update(&all_bytes);
-                diff_bytes = all_bytes.len() as u64;
-            }
-            BlobEncoding::Gzip => {
-                let mut decoder = flate2::read::GzDecoder::new(&all_bytes[..]);
-                let mut decomp_buf = [0u8; 64 * 1024];
-                loop {
-                    let n = decoder.read(&mut decomp_buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    diff_hasher.update(&decomp_buf[..n]);
-                    diff_bytes += n as u64;
-                }
-            }
-            BlobEncoding::Zstd => {
-                let mut decoder = zstd::stream::read::Decoder::new(&all_bytes[..])?;
-                let mut decomp_buf = [0u8; 64 * 1024];
-                loop {
-                    let n = decoder.read(&mut decomp_buf)?;
-                    if n == 0 {
-                        break;
-                    }
-                    diff_hasher.update(&decomp_buf[..n]);
-                    diff_bytes += n as u64;
-                }
-            }
-        }
+        // Pass 2: re-read tmp through the decompressor for diff_id.
+        // Reopen by path so we get a fresh file offset at 0 — using
+        // tmp.as_file_mut() + seek would also work but reopen is
+        // simpler and lets us drop the read handle independently.
+        let tmp_path = tmp.path().to_path_buf();
+        let blob_file = std::fs::File::open(&tmp_path)?;
+        let (diff_id, diff_bytes) = stream_diff_id(encoding, blob_file)?;
 
         if self.fsync == FsyncMode::Always {
             tmp.as_file().sync_data()?;
         }
 
         let blob_id = BlobId(blob_hasher.finalize());
-        let diff_id = DiffId(diff_hasher.finalize());
 
         // Rename blob into objects/
         let dst = self.blob_path(&blob_id);
@@ -696,6 +663,32 @@ impl Store for FsStore {
         }
         Ok(report)
     }
+}
+
+/// Stream `reader` through the decompressor named by `encoding` and
+/// return the resulting diff_id plus the uncompressed byte count. Used
+/// by put_blob to compute diff_id without buffering the whole blob.
+fn stream_diff_id(
+    encoding: BlobEncoding,
+    reader: impl Read,
+) -> Result<(DiffId, u64), StoreError> {
+    let mut diff_hasher = Hasher::new();
+    let mut diff_bytes: u64 = 0;
+    let mut buf = [0u8; 64 * 1024];
+    let mut decoder: Box<dyn Read> = match encoding {
+        BlobEncoding::PlainTar => Box::new(reader),
+        BlobEncoding::Gzip => Box::new(flate2::read::GzDecoder::new(reader)),
+        BlobEncoding::Zstd => Box::new(zstd::stream::read::Decoder::new(reader)?),
+    };
+    loop {
+        let n = decoder.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        diff_hasher.update(&buf[..n]);
+        diff_bytes += n as u64;
+    }
+    Ok((DiffId(diff_hasher.finalize()), diff_bytes))
 }
 
 /// Hash a stored blob's *decompressed* contents to recover its diff_id.
