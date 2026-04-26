@@ -1,13 +1,16 @@
 {
   "id": "fqtS",
   "title": "Streaming put_blob — drop the rest_bytes Vec buffer",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:59:04.515245113Z",
-  "updated_at": "2026-04-26T15:59:04.515245113Z",
+  "updated_at": "2026-04-26T16:14:49.445344038Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "WKIW"
+  "parent": "WKIW",
+  "meta": {
+    "_reason": "refactor put_blob to avoid in-memory buffering"
+  }
 }
