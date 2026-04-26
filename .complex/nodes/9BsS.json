@@ -1,15 +1,18 @@
 {
   "id": "9BsS",
   "title": "Store::fsck_repair",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:05:08.269240872Z",
-  "updated_at": "2026-04-26T15:05:08.269240872Z",
+  "updated_at": "2026-04-26T15:27:25.446041011Z",
   "tags": [
     "workflow:code-task"
   ],
   "parent": "3idQ",
+  "meta": {
+    "_reason": "next paired store/CLI slice"
+  },
   "edges": [
     {
       "to": "k30T",

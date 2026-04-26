@@ -22,6 +22,11 @@ pub struct Manifest {
 
     #[serde(default, skip_serializing_if = "Metadata::is_empty")]
     pub metadata: Metadata,
+
+    /// Unknown top-level fields. PRD requires these survive parse/emit so
+    /// downstream tools can carry their own metadata without a schema bump.
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -33,6 +38,8 @@ pub struct Package {
     pub description: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
@@ -66,6 +73,9 @@ pub struct Layer {
 
     #[serde(default, skip_serializing_if = "is_false")]
     pub follow_symlinks: bool,
+
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, serde_json::Value>,
 }
 
 fn is_false(b: &bool) -> bool {

@@ -14,11 +14,13 @@ fn manifest(kind: &str, metadata_toml: &str) -> Manifest {
             kind: kind.into(),
             description: "".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: Vec::<Layer>::new(),
         dependencies: vec![],
         hook: Hook { ops: vec![] },
         metadata: Metadata(metadata),
+        extra: Default::default(),
     }
 }
 

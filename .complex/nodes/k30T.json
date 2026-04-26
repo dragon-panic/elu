@@ -1,13 +1,16 @@
 {
   "id": "k30T",
   "title": "elu fsck --repair",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:05:12.632473626Z",
-  "updated_at": "2026-04-26T15:05:12.632473626Z",
+  "updated_at": "2026-04-26T15:28:20.801278003Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "3idQ"
+  "parent": "3idQ",
+  "meta": {
+    "_reason": "paired CLI for 9BsS"
+  }
 }

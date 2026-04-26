@@ -138,6 +138,7 @@ pub fn build(
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: layer.extra.clone(),
         });
     }
 
@@ -166,6 +167,7 @@ pub fn build(
         dependencies: source.dependencies.clone(),
         hook: source.hook.clone(),
         metadata: source.metadata.clone(),
+        extra: source.extra.clone(),
     };
 
     if let Err(e) = validate_stored(&stored) {

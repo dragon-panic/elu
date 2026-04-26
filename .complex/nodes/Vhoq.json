@@ -1,13 +1,16 @@
 {
   "id": "Vhoq",
   "title": "elu refs rm",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:05:21.269814538Z",
-  "updated_at": "2026-04-26T15:05:21.269814538Z",
+  "updated_at": "2026-04-26T15:18:33.471921310Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "3idQ"
+  "parent": "3idQ",
+  "meta": {
+    "_reason": "paired CLI for KbJk"
+  }
 }

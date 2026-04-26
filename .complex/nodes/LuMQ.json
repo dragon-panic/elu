@@ -1,0 +1,16 @@
+{
+  "id": "LuMQ",
+  "title": "fsck verifies diff_id by decompression, not just blob existence",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-04-26T15:59:17.544926490Z",
+  "updated_at": "2026-04-26T16:05:28.591700714Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "WKIW",
+  "meta": {
+    "_reason": "extend fsck step 2 to decompress + verify diff_id"
+  }
+}

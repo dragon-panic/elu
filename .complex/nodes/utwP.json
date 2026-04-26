@@ -1,13 +1,16 @@
 {
   "id": "utwP",
   "title": "elu explain --diff <old> <new>",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:04:44.035371782Z",
-  "updated_at": "2026-04-26T15:04:44.035371782Z",
+  "updated_at": "2026-04-26T15:15:22.014362143Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "3idQ"
+  "parent": "3idQ",
+  "meta": {
+    "_reason": "pure CLI, manifest layer already accessible"
+  }
 }

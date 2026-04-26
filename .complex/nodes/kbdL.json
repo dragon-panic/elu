@@ -1,13 +1,16 @@
 {
   "id": "kbdL",
   "title": "elu init --template <name>",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:04:35.227499840Z",
-  "updated_at": "2026-04-26T15:04:35.227499840Z",
+  "updated_at": "2026-04-26T15:38:59.918910953Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "3idQ"
+  "parent": "3idQ",
+  "meta": {
+    "_reason": "registry-backed TemplateProvider impl + CLI wiring"
+  }
 }

@@ -23,11 +23,13 @@ fn empty_manifest(ns: &str, name: &str) -> Manifest {
             kind: "native".into(),
             description: "".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![],
         dependencies: vec![],
         hook: Default::default(),
         metadata: Default::default(),
+        extra: Default::default(),
     }
 }
 

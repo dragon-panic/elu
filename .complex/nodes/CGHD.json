@@ -1,0 +1,16 @@
+{
+  "id": "CGHD",
+  "title": "Validate layer.strip and layer.place against absolute paths and parent escape",
+  "state": "integrated",
+  "shadowed": false,
+  "part": "claude",
+  "created_at": "2026-04-26T15:59:41.648455833Z",
+  "updated_at": "2026-04-26T16:03:53.756697486Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "WKIW",
+  "meta": {
+    "_reason": "validator helper for layer.strip and layer.place"
+  }
+}

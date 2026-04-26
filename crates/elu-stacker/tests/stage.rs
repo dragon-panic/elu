@@ -23,11 +23,13 @@ fn resolution(layers: Vec<DiffId>) -> Resolution {
             kind: "native".into(),
             description: "".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![],
         dependencies: vec![],
         hook: Hook { ops: vec![] },
         metadata: Default::default(),
+        extra: Default::default(),
     };
     Resolution {
         manifests: vec![ResolvedManifest {

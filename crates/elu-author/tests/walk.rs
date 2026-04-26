@@ -15,6 +15,7 @@ fn layer_src(include: &[&str]) -> Layer {
         place: None,
         mode: None,
         follow_symlinks: false,
+        extra: Default::default(),
     }
 }
 

@@ -1,13 +1,16 @@
 {
   "id": "JO58",
   "title": "elu init --from <path>",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
-  "part": null,
+  "part": "claude",
   "created_at": "2026-04-26T15:04:29.805980336Z",
-  "updated_at": "2026-04-26T15:04:29.805980336Z",
+  "updated_at": "2026-04-26T15:30:57.085235305Z",
   "tags": [
     "workflow:code-task"
   ],
-  "parent": "3idQ"
+  "parent": "3idQ",
+  "meta": {
+    "_reason": "pure CLI heuristics, no new deps"
+  }
 }

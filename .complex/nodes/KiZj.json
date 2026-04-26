@@ -1,11 +1,11 @@
 {
   "id": "KiZj",
   "title": "elu schema --yaml",
-  "state": "claimed",
+  "state": "integrated",
   "shadowed": false,
   "part": "claude",
   "created_at": "2026-04-26T15:04:54.966979603Z",
-  "updated_at": "2026-04-26T15:10:24.257859969Z",
+  "updated_at": "2026-04-26T15:13:22.632745215Z",
   "tags": [
     "workflow:code-task"
   ],

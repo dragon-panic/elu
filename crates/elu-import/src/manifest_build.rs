@@ -41,6 +41,7 @@ pub fn build_manifest(params: ManifestParams) -> Result<Manifest, String> {
             kind: params.kind,
             description: params.description,
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![Layer {
             diff_id: Some(params.diff_id),
@@ -52,10 +53,12 @@ pub fn build_manifest(params: ManifestParams) -> Result<Manifest, String> {
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: Default::default(),
         }],
         dependencies: deps,
         hook: Hook::default(),
         metadata: Metadata(params.metadata),
+        extra: Default::default(),
     };
 
     validate_stored(&manifest).map_err(|e| e.to_string())?;

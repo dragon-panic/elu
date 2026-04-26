@@ -17,6 +17,7 @@ fn manifest_a() -> Manifest {
             kind: "native".into(),
             description: "Prints a tree".into(),
             tags: vec!["example".into()],
+            extra: Default::default(),
         },
         layers: vec![Layer {
             diff_id: Some(elu_store::hash::DiffId(hash_of(1))),
@@ -28,6 +29,7 @@ fn manifest_a() -> Manifest {
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: Default::default(),
         }],
         dependencies: vec![Dependency {
             reference: "ox-community/shell".parse::<PackageRef>().unwrap(),
@@ -40,6 +42,7 @@ fn manifest_a() -> Manifest {
             }],
         },
         metadata: Metadata::default(),
+        extra: Default::default(),
     }
 }
 

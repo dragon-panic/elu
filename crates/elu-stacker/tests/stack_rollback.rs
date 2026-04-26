@@ -23,11 +23,13 @@ fn manifest_with_hook(ops: Vec<HookOp>) -> Manifest {
             kind: "native".into(),
             description: "".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![],
         dependencies: vec![],
         hook: Hook { ops },
         metadata: Default::default(),
+        extra: Default::default(),
     }
 }
 

@@ -65,6 +65,7 @@ fn fake_template_with_skill_md() -> FakeProvider {
             kind: "elu-template".into(),
             description: "scaffold for a rust skill".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![Layer {
             diff_id: Some(diff_id.clone()),
@@ -76,10 +77,12 @@ fn fake_template_with_skill_md() -> FakeProvider {
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: Default::default(),
         }],
         dependencies: vec![],
         hook: Default::default(),
         metadata: Default::default(),
+        extra: Default::default(),
     };
 
     let mut blobs = HashMap::new();
@@ -133,6 +136,7 @@ fn template_verifies_diff_id_matches_blob_bytes() {
             kind: "elu-template".into(),
             description: "t".into(),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![Layer {
             diff_id: Some(advertised),
@@ -144,10 +148,12 @@ fn template_verifies_diff_id_matches_blob_bytes() {
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: Default::default(),
         }],
         dependencies: vec![],
         hook: Default::default(),
         metadata: Default::default(),
+        extra: Default::default(),
     };
     let provider = FakeProvider {
         manifest_bytes: to_canonical_json(&manifest),

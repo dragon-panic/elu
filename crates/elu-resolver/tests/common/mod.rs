@@ -117,11 +117,13 @@ pub fn make_manifest(
             kind: "lib".into(),
             description: format!("{namespace}/{name} test"),
             tags: vec![],
+            extra: Default::default(),
         },
         layers: vec![],
         dependencies: deps,
         hook: Default::default(),
         metadata: Metadata::default(),
+        extra: Default::default(),
     }
 }
 
@@ -164,6 +166,7 @@ pub fn make_manifest_with_layers(
             place: None,
             mode: None,
             follow_symlinks: false,
+            extra: Default::default(),
         })
         .collect();
     m
