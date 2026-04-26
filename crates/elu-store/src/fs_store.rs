@@ -86,6 +86,108 @@ impl FsStore {
     fn gc_lock_path(&self) -> Utf8PathBuf {
         self.root.join("locks").join("gc.lock")
     }
+
+    /// Mark + scan: enumerate every object/diff/tmp that GC would remove,
+    /// without touching the store. Caller must hold an appropriate lock
+    /// (shared for plan_gc, exclusive for gc) for the result to be consistent.
+    fn compute_gc_plan(&self, reader: &dyn ManifestReader) -> Result<GcPlan, StoreError> {
+        use std::collections::HashSet;
+
+        let mut live_blobs: HashSet<String> = HashSet::new();
+        let mut live_diffs: HashSet<String> = HashSet::new();
+
+        let all_refs = self.list_refs(RefFilter::default())?;
+        let mut manifest_queue: Vec<ManifestHash> =
+            all_refs.iter().map(|r| r.hash.clone()).collect();
+        let mut visited_manifests: HashSet<String> = HashSet::new();
+
+        while let Some(mh) = manifest_queue.pop() {
+            if !visited_manifests.insert(mh.to_string()) {
+                continue;
+            }
+            live_blobs.insert(mh.0.to_string());
+
+            if let Some(manifest_bytes) = self.get_manifest(&mh)? {
+                if let Ok(diff_ids) = reader.layer_diff_ids(&manifest_bytes) {
+                    for diff_id in &diff_ids {
+                        live_diffs.insert(diff_id.to_string());
+                        if let Ok(Some(blob_id)) = self.resolve_diff(diff_id) {
+                            live_blobs.insert(blob_id.0.to_string());
+                        }
+                    }
+                }
+                if let Ok(deps) = reader.dependency_hashes(&manifest_bytes) {
+                    for dep in deps {
+                        manifest_queue.push(dep);
+                    }
+                }
+            }
+        }
+
+        let mut plan = GcPlan::default();
+
+        let objects_dir = self.root.join("objects");
+        for blob_id_str in walk_hash_files(&objects_dir)? {
+            if !live_blobs.contains(&blob_id_str) {
+                let hash: Hash = blob_id_str.parse()?;
+                let bid = BlobId(hash);
+                let path = self.blob_path(&bid);
+                if let Ok(meta) = fs::metadata(path.as_std_path()) {
+                    plan.bytes_to_free += meta.len();
+                }
+                plan.objects_to_remove.push(bid);
+            }
+        }
+
+        let diffs_dir = self.root.join("diffs");
+        for diff_id_str in walk_hash_files(&diffs_dir)? {
+            if !live_diffs.contains(&diff_id_str) {
+                let hash: Hash = diff_id_str.parse()?;
+                plan.diffs_to_remove.push(DiffId(hash));
+            }
+        }
+
+        let tmp_dir = self.tmp_dir();
+        if let Ok(entries) = fs::read_dir(tmp_dir.as_std_path()) {
+            let cutoff = std::time::SystemTime::now()
+                - std::time::Duration::from_secs(24 * 60 * 60);
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata()
+                    && let Ok(modified) = meta.modified()
+                    && modified < cutoff
+                    && let Some(p) = camino::Utf8Path::from_path(&entry.path())
+                {
+                    plan.tmp_to_remove.push(p.to_path_buf());
+                }
+            }
+        }
+
+        Ok(plan)
+    }
+
+    /// Execute a previously computed plan. Caller must hold the exclusive
+    /// gc lock; called only from `gc`.
+    fn apply_gc_plan(&self, plan: &GcPlan) -> GcStats {
+        let mut stats = GcStats {
+            bytes_freed: plan.bytes_to_free,
+            ..GcStats::default()
+        };
+        for bid in &plan.objects_to_remove {
+            let path = self.blob_path(bid);
+            let _ = fs::remove_file(path.as_std_path());
+            stats.objects_removed += 1;
+        }
+        for did in &plan.diffs_to_remove {
+            let path = self.diff_path(did);
+            let _ = fs::remove_file(path.as_std_path());
+            stats.diffs_removed += 1;
+        }
+        for path in &plan.tmp_to_remove {
+            let _ = fs::remove_file(path.as_std_path());
+            stats.tmp_removed += 1;
+        }
+        stats
+    }
 }
 
 impl Store for FsStore {
@@ -450,8 +552,6 @@ impl Store for FsStore {
     }
 
     fn gc(&self, reader: &dyn ManifestReader) -> Result<GcStats, StoreError> {
-        use std::collections::HashSet;
-
         let lock_path = self.gc_lock_path();
         let lock_file = fs::OpenOptions::new()
             .create(true)
@@ -463,92 +563,27 @@ impl Store for FsStore {
             .try_lock_exclusive()
             .map_err(|_| StoreError::GcBusy)?;
 
-        let mut live_blobs: HashSet<String> = HashSet::new();
-        let mut live_diffs: HashSet<String> = HashSet::new();
-        let mut stats = GcStats::default();
-
-        // Mark: walk all refs
-        let all_refs = self.list_refs(RefFilter::default())?;
-        let mut manifest_queue: Vec<ManifestHash> =
-            all_refs.iter().map(|r| r.hash.clone()).collect();
-        let mut visited_manifests: HashSet<String> = HashSet::new();
-
-        while let Some(mh) = manifest_queue.pop() {
-            let mh_str = mh.to_string();
-            if !visited_manifests.insert(mh_str) {
-                continue;
-            }
-            // The manifest blob itself is live
-            live_blobs.insert(mh.0.to_string());
-
-            if let Some(manifest_bytes) = self.get_manifest(&mh)? {
-                // Get layer diff_ids
-                if let Ok(diff_ids) = reader.layer_diff_ids(&manifest_bytes) {
-                    for diff_id in &diff_ids {
-                        live_diffs.insert(diff_id.to_string());
-                        if let Ok(Some(blob_id)) = self.resolve_diff(diff_id) {
-                            live_blobs.insert(blob_id.0.to_string());
-                        }
-                    }
-                }
-                // Get dependency manifest hashes
-                if let Ok(deps) = reader.dependency_hashes(&manifest_bytes) {
-                    for dep in deps {
-                        manifest_queue.push(dep);
-                    }
-                }
-            }
-        }
-
-        // Sweep objects/
-        let objects_dir = self.root.join("objects");
-        for blob_id_str in walk_hash_files(&objects_dir)? {
-            if !live_blobs.contains(&blob_id_str) {
-                let hash: Hash = blob_id_str.parse()?;
-                let bid = BlobId(hash);
-                let path = self.blob_path(&bid);
-                if let Ok(meta) = fs::metadata(path.as_std_path()) {
-                    stats.bytes_freed += meta.len();
-                }
-                let _ = fs::remove_file(path.as_std_path());
-                stats.objects_removed += 1;
-            }
-        }
-
-        // Sweep diffs/
-        let diffs_dir = self.root.join("diffs");
-        for diff_id_str in walk_hash_files(&diffs_dir)? {
-            if !live_diffs.contains(&diff_id_str) {
-                let hash: Hash = diff_id_str.parse()?;
-                let did = DiffId(hash);
-                let path = self.diff_path(&did);
-                let _ = fs::remove_file(path.as_std_path());
-                stats.diffs_removed += 1;
-            }
-        }
-
-        // Clean stale tmp/ files older than 24h
-        let tmp_dir = self.tmp_dir();
-        if let Ok(entries) = fs::read_dir(tmp_dir.as_std_path()) {
-            let cutoff = std::time::SystemTime::now()
-                - std::time::Duration::from_secs(24 * 60 * 60);
-            for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata()
-                    && let Ok(modified) = meta.modified()
-                    && modified < cutoff
-                {
-                    let _ = fs::remove_file(entry.path());
-                    stats.tmp_removed += 1;
-                }
-            }
-        }
+        let plan = self.compute_gc_plan(reader)?;
+        let stats = self.apply_gc_plan(&plan);
 
         lock_file.unlock().map_err(StoreError::Lock)?;
         Ok(stats)
     }
 
-    fn plan_gc(&self, _reader: &dyn ManifestReader) -> Result<GcPlan, StoreError> {
-        unimplemented!("plan_gc")
+    fn plan_gc(&self, reader: &dyn ManifestReader) -> Result<GcPlan, StoreError> {
+        let lock_path = self.gc_lock_path();
+        let lock_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(lock_path.as_std_path())
+            .map_err(StoreError::Lock)?;
+        lock_file.lock_shared().map_err(StoreError::Lock)?;
+
+        let plan = self.compute_gc_plan(reader);
+
+        lock_file.unlock().map_err(StoreError::Lock)?;
+        plan
     }
 
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError> {
