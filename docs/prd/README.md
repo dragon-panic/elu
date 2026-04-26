@@ -54,8 +54,11 @@ A **package** is a manifest plus an ordered list of layers. A **layer** is
 a content-addressed blob representing a file tree. A **stack** is a
 resolved ordered list of layers materialized into a target: a directory,
 a tarball, a qcow2 image. The **store** is the content-addressed object
-database that holds manifests and layer blobs. The **registry** is a
+database that holds manifests and layer blobs. A **registry** is a
 lookup service that maps names and versions to manifest hashes.
+Registries are federated: there may be an elu-operated default, a
+company-internal registry, a community registry, or a static mirror,
+all speaking the same protocol.
 
 ```
                       ┌─────────────────┐
@@ -184,6 +187,15 @@ packages with the same content are the same package. Approval
 decisions are keyed on those hashes too — an upgrade is a new hash,
 which is a new approval moment.
 
+**The protocol should survive the company.** elu may provide a
+default hosted registry, but installability must not depend on one
+cloud account, DNS name, or operator. Package formats, lockfiles,
+registry records, and CAS verification rules are documented protocol
+surfaces. Anyone should be able to run a compatible registry, mirror
+public blobs, or preserve a locked package set because the durable
+identity is the manifest hash and layer hashes, not the service that
+first served them.
+
 **`kind` is opaque to elu.** A package carries a `kind` string in its
 manifest. elu parses it, exposes it, and never dispatches on it.
 Consumers — ox-runner, seguro provisioners, anything else — read
@@ -204,11 +216,13 @@ the same shape as a hand-written one. No second manifest format, no
 The importer is a build-time tool; the output is plain elu. See
 [importers.md](importers.md).
 
-**The registry is a lookup service, not a host.** The registry maps
-names and versions to manifest hashes (and the upstream fetch URL for
-the underlying blobs). It does not store blobs itself. Sources of
-truth are the content store (for bytes) and the publisher's
-infrastructure (for availability). See [registry.md](registry.md).
+**Registries are lookup services, not the system's root of trust.**
+A registry maps names and versions to manifest hashes, exposes
+publisher and policy metadata, and provides fetch hints for the
+underlying blobs. It does not make bytes trustworthy by serving them.
+The source of truth for content is the CAS identity, and availability
+can come from registry URLs, mirrors, local stores, private seeders,
+or verified peer transports. See [registry.md](registry.md).
 
 **Outputs are targets, not formats.** tar, dir, and qcow2 are three
 ways of asking "put this stack somewhere usable." They share the
@@ -352,8 +366,8 @@ The shortest way to describe elu to someone who knows OCI:
 ### Why the resemblance
 
 OCI got the hard parts right: content-addressed layers, the
-diff_id/blob_id split, whiteout semantics, plain HTTP transport
-with presigned blob URLs. Re-deriving any of these from first
+diff_id/blob_id split, whiteout semantics, and a simple registry
+transport with presigned blob URLs. Re-deriving any of these from first
 principles would produce something nearly identical — and would
 sacrifice the cheap bridge to OCI tooling that matters for
 adoption.

@@ -12,10 +12,16 @@ is always the content-addressed store — on the client side locally,
 and in whatever blob storage the registry operator happens to use on
 the server side.
 
+There is no privileged global registry in the protocol. An elu-operated
+registry may be the convenient default, but companies, communities,
+air-gapped environments, and individual operators can run their own
+registries. The API is the contract. The Rust implementation is one
+implementation of that contract.
+
 This thinness is intentional. A fat registry that stores, signs,
 scans, and re-serves every blob is a different project with different
 trust and operational concerns. elu's registry does the minimum needed
-to make names portable across stores.
+to make names portable across stores and registries.
 
 ---
 
@@ -25,7 +31,7 @@ For each published package version:
 
 | Field | Meaning |
 |-------|---------|
-| `namespace/name` | The reference. Unique across the registry. |
+| `namespace/name` | The reference. Unique within this registry. |
 | `version` | Semver string. Unique within a `namespace/name`. |
 | `manifest_blob_id` | Hash of the manifest bytes. The package's identity. |
 | `manifest_url` | Where to fetch the manifest bytes. |
@@ -61,8 +67,58 @@ diff_id is the shared cache key. Clients that don't fetch from
 Note what is **not** in this list: the manifest bytes themselves
 and the layer bytes themselves. The registry stores only metadata
 and pointers. Bytes live in object storage managed by the registry
-operator (S3, GCS, a CDN, a plain HTTP server) — elu does not care,
-as long as clients can `GET` them.
+operator (S3, GCS, a CDN, a plain HTTP server, an internal mirror,
+or another fetchable backend) — elu does not care, as long as
+clients can fetch them and verify the hashes.
+
+---
+
+## Federation and Cloud Independence
+
+elu's distribution model is federated in the same practical sense as
+OCI registries: many registries can speak the same protocol, each
+with its own namespaces, authentication, visibility rules,
+moderation, publisher identities, and operational choices.
+
+```
+https://registry.elu.dev/ox-community/postgres-query@0.3.0
+https://registry.acme.internal/platform/base@4.1.0
+https://registry.community.example/agents/reviewer@0.3.2
+```
+
+Registries provide naming, discovery, and policy metadata. The store
+provides identity. Mirrors and peer transports provide availability.
+Those responsibilities must not collapse into one mandatory cloud
+service.
+
+A registry is authoritative only for the names and versions inside
+that registry. The same `namespace/name@version` on two registries is
+not assumed to be the same publication unless it resolves to the same
+manifest hash. Conversely, if two registries or mirrors serve the
+same manifest and blobs by hash, clients can verify that they are the
+same package regardless of where the bytes came from.
+
+The long-term survival property is:
+
+```
+if a user has a lockfile plus the referenced manifest and blobs,
+the package set remains installable without the original registry.
+```
+
+The original registry may disappear, change operators, lose its blob
+backend, or become unreachable from a network. A third party that has
+the locked hashes can mirror the package set because all content is
+self-identifying and locally verifiable. What may not survive is the
+original human name's authority: a mirror can preserve bytes and
+metadata, but it cannot claim to be the original registry's namespace
+owner unless clients choose to trust that mirror for naming.
+
+Federation is not global consensus. elu does not attempt to solve
+universal namespace ownership, community moderation, cross-registry
+publisher identity, or decentralized version arbitration. Those are
+registry governance questions. The protocol's job is to make the
+content portable and verifiable when a community, company, or user
+chooses a different registry operator.
 
 ---
 
@@ -162,8 +218,11 @@ Response:
 }
 ```
 
-The client fetches `manifest_url` and each `layers[].url` via plain
-HTTP `GET`. Verification is two-layer:
+The client fetches `manifest_url` and each `layers[].url` through
+the configured transports. In the ordinary case these are plain HTTP
+`GET`s against registry-provided URLs; mirrors and peer transports
+can satisfy the same records as long as the verification rules below
+hold. Verification is two-layer:
 
 1. **Manifest.** Hash the fetched bytes → must equal
    `manifest_blob_id`. Parse. For each layer in the manifest, the
@@ -192,6 +251,84 @@ the local `diffs/diff_id → blob_id` index resolves to whichever
 blob is already on disk. This is the property that makes the
 manifest-diff_id-only design pay off: dedup across publishers and
 across compression choices happens automatically.
+
+### Verified peer transport for CAS blobs
+
+Layer blobs are immutable and addressed by `blob_id`, so the blob
+fetch path can use untrusted transports. A client may fetch a blob
+from the registry's URL, an HTTP mirror, a local cache, a private
+seeder, or a public peer-discovery network. The acceptance rule is
+identical for all of them: the fetched bytes are stored only if
+`hash(bytes) == blob_id`, and the layer is usable only if
+`hash(decompress(bytes)) == diff_id`.
+
+This makes peer distribution a transport optimization, not a trust
+primitive. The registry remains authoritative for all human meaning:
+
+- Package names and namespaces.
+- Version listings and semver resolution inputs.
+- `namespace/name@version → manifest_blob_id`.
+- Manifest URLs and per-layer distribution records.
+- Publisher identity, signatures, visibility, yanks, and policy
+  metadata.
+
+A DHT or torrent-like network answers only one question: "who might
+have bytes for `blob_id`?" It never answers "what is the latest
+version of this package?" or "what hash does this name resolve to?"
+Clients that learn a peer address from a DHT still verify the bytes
+locally before the store commit point. Bad peers can waste bandwidth
+by serving the wrong bytes, but they cannot cause a wrong blob to be
+accepted.
+
+Peer transport is only enabled for public immutable blobs. Private
+packages do not use public peer discovery by default, because asking
+for a content hash can reveal dependency interest even when the
+contents remain protected by hashes. Organizations may opt into
+private peer discovery or internal seeders for their own registries.
+
+The client fetch algorithm is transport-ordered and fallback-based:
+
+```
+fetch_blob(diff_id, blob_id, hints):
+    if store.has(blob_id) or store.has_diff(diff_id):
+        return present
+    for transport in configured_transports:
+        candidate = transport.fetch(blob_id, hints)
+        if candidate verifies as (blob_id, diff_id):
+            store.put_verified_blob(candidate, diff_id, blob_id)
+            return present
+        record_peer_failure(transport, blob_id)
+    return not_found
+```
+
+The default configuration for v1 remains conservative:
+
+```
+[network]
+transports = ["registry"]
+peer_discovery = "disabled"
+peer_upload = false
+```
+
+Operators and users can opt into peer fetching for public content:
+
+```
+[network]
+transports = ["peer", "registry"]
+peer_discovery = "public-dht"
+peer_upload = true
+```
+
+Enterprise and air-gapped environments can disable the public peer
+transport globally and still use the same package graph through
+registry URLs, HTTP mirrors, or local stores.
+
+Peer failures are reputation data, not integrity failures. A peer
+that serves bytes that do not match `blob_id`, bytes that match
+`blob_id` but fail decompression, or bytes whose decompressed hash
+does not match `diff_id` is ignored and may be locally suppressed.
+This suppression is advisory and local; the registry does not need
+to adjudicate peer behavior for the integrity model to hold.
 
 ### Version listing
 
@@ -313,6 +450,27 @@ A reference like `acme-corp/internal-tool` is looked up against each
 registry in order until one returns a result. Hash references bypass
 the registry entirely and can be fetched from any registry that has
 the blob.
+
+For reproducible projects, the lockfile records the registry source
+that produced each name resolution along with the manifest hash (see
+[resolver.md](resolver.md#lockfile)). The source is provenance and a
+future lookup hint, not content identity. If the original registry is
+gone but another registry or mirror has the same manifest and blobs,
+the client can still verify the bytes against the locked hashes.
+
+Self-hosting can be full-service or minimal:
+
+- A full registry supports publish, search, namespace management,
+  authentication, and blob upload URLs.
+- A corporate registry may proxy public registries, enforce local
+  policy, and seed approved blobs internally.
+- A preservation mirror may expose only package records and blob
+  URLs for a locked package set.
+- A static registry may be a generated directory of JSON records and
+  CAS blobs behind ordinary HTTP.
+
+All four are compatible as long as clients can resolve names to
+manifest hashes and fetch verifiable bytes.
 
 ---
 

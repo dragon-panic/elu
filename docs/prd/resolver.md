@@ -7,8 +7,9 @@ sloppy, human-friendly world of `ox-community/postgres-query@^0.3` and
 the strict, machine-friendly world of `b3:8f7a1c2e...`.
 
 The resolver is deterministic. Given the same references, the same
-registry state, and the same local store, it always produces the same
-resolution. This is what makes lockfiles meaningful.
+registry configuration and registry state, and the same local store,
+it always produces the same resolution. This is what makes lockfiles
+meaningful.
 
 ---
 
@@ -38,7 +39,7 @@ less strict by user flags (`--locked`, `--update`).
 ## Resolution Pipeline
 
 ```
-resolve(roots, *, lockfile=None, store=..., registry=...) -> resolution
+resolve(roots, *, lockfile=None, store=..., registries=...) -> resolution
     1. seed the work queue with root references
     2. while queue not empty:
          ref = queue.pop()
@@ -70,11 +71,11 @@ resolve_one(ref) -> manifest_hash:
         else:
             error: lock conflict
     # no lock, or lock didn't apply
-    candidates = registry.versions(ref.name)
+    candidates = registries.versions(ref.name)
     match = highest version in candidates satisfying ref.version
     if no match:
         error: no version satisfies
-    return registry.resolve(ref.name, match)
+    return registries.resolve(ref.name, match)
 ```
 
 The resolver consults the lockfile before the registry. A reference
@@ -124,19 +125,22 @@ deduplicated layer hash list. That list is what gets passed to
 ## Lockfile
 
 A lockfile is the serialized output of a successful resolution. It
-pins every package in the resolution to an exact manifest hash.
+pins every package in the resolution to an exact manifest hash and
+records where the name was resolved.
 
 ```toml
 # elu.lock
 schema = 1
 
 [[package]]
+source    = "https://registry.elu.dev"
 namespace = "ox-community"
 name      = "postgres-query"
 version   = "0.3.2"
 hash      = "b3:8f7a1c2e4d3b..."
 
 [[package]]
+source    = "https://registry.elu.dev"
 namespace = "ox-community"
 name      = "shell"
 version   = "1.1.0"
@@ -146,6 +150,12 @@ hash      = "b3:3b9e0a77f1..."
 The lockfile is intended to be committed to version control. A team
 that commits `elu.lock` gets byte-identical stacks on every machine
 until someone runs `elu update`.
+
+`source` is the registry URL that produced the name-to-hash mapping.
+It is provenance and a lookup hint, not the package's identity. The
+identity is `hash`. If `source` is unavailable but another registry,
+mirror, local store, or verified peer transport can provide the same
+manifest and layer blobs, the locked package is still valid.
 
 The lockfile lives next to the project's `elu.toml`. CLI commands
 that read or write it locate the project root by walking up from
@@ -200,7 +210,7 @@ reference and verifies that the hash is fetchable.
 ## Interface Sketch
 
 ```
-# Resolve a set of roots against the current store and registry
+# Resolve a set of roots against the current store and configured registries
 resolver.resolve(roots, *, lockfile=None, offline=False) -> resolution
 
 # Check a lockfile against its manifest without resolving over the network
@@ -217,7 +227,7 @@ The `resolution` struct contains:
 
 ```
 resolution = {
-    manifests: ordered list of (ref, manifest_hash, manifest)
+    manifests: ordered list of (source, ref, manifest_hash, manifest)
     layers:    ordered list of layer_hash (deduplicated)
     fetch_plan: list of (hash, source_url)  # blobs not yet in store
 }

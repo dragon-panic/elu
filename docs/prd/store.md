@@ -405,6 +405,8 @@ format-compatible at the consumer layer.
 encryption encrypt the backing filesystem. elu does not own key
 management.
 
-**Not distributed.** A store is one directory on one filesystem. Two
-machines share content by running a registry between them (see
-[registry.md](registry.md)); they do not share a store directly.
+**Not a distributed filesystem.** A store is one directory on one
+filesystem. Two machines do not share a live store directly. They
+share content by publishing and fetching content-addressed objects
+through registry-provided URLs, mirrors, local sync, or verified
+peer transports (see [registry.md](registry.md#verified-peer-transport-for-cas-blobs)).

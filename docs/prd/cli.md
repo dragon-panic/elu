@@ -18,7 +18,7 @@ ring model (see [README.md](README.md)).
 | Flag | Effect |
 |------|--------|
 | `--store <path>` | Override the store root. Default: `$ELU_STORE` or `~/.local/share/elu`. |
-| `--registry <url>` | Override the registry. Comma-separated list for fallback chain. |
+| `--registry <url>` | Override the registry for unqualified name resolution. Comma-separated list for fallback chain. |
 | `--offline` | Never contact a registry. Fail if resolution needs one. |
 | `--locked` | Refuse to proceed if the lockfile would need to change. |
 | `--hooks <mode>` | Override hook policy for this invocation: `off`, `safe`, `ask`, `trust`. Default comes from policy file (see [hooks.md](hooks.md)). **`trust` is never the default**, and passing it requires an explicit CLI flag. |
