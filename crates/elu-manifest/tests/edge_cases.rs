@@ -1,9 +1,10 @@
-use elu_manifest::{from_toml_str, to_toml_string, validate};
+use elu_manifest::{from_toml_str, to_canonical_json, to_toml_string, validate};
 
-/// Unknown fields in the TOML are preserved through round-trip.
-/// The PRD says: "unknown fields preserved but ignored by elu itself"
+/// Unknown fields are preserved through TOML round-trip and through canonical
+/// JSON serialization. PRD docs/prd/manifest.md:24: "unknown fields preserved
+/// but ignored by elu itself."
 #[test]
-fn unknown_fields_preserved_in_toml_roundtrip() {
+fn unknown_fields_preserved_through_toml_and_canonical_json() {
     let toml = r#"
 schema = 1
 custom_top_level = "hello"
@@ -21,14 +22,30 @@ diff_id = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 size = 100
 custom_layer_field = "extra"
 "#;
-    // Should parse without error — unknown fields are simply ignored
-    let result = from_toml_str(toml);
-    // serde with deny_unknown_fields would fail; without it, unknown fields
-    // are silently dropped. Our design says "preserved" — but through TOML
-    // round-trip via serde, unknown fields are dropped. This is acceptable
-    // because the stored form in the CAS is canonical JSON (not TOML).
-    // The TOML form is for human convenience.
-    assert!(result.is_ok(), "unknown fields should not cause parse errors");
+    let m = from_toml_str(toml).expect("unknown fields must not break parse");
+
+    // 1. TOML round-trip: re-serialize and re-parse — unknown fields survive.
+    let re_toml = to_toml_string(&m).unwrap();
+    assert!(
+        re_toml.contains("custom_top_level"),
+        "top-level unknown field dropped on re-emit:\n{re_toml}",
+    );
+    assert!(
+        re_toml.contains("custom_package_field"),
+        "package unknown field dropped on re-emit:\n{re_toml}",
+    );
+    assert!(
+        re_toml.contains("custom_layer_field"),
+        "layer unknown field dropped on re-emit:\n{re_toml}",
+    );
+
+    // 2. Canonical JSON also retains unknown fields — consumers reading the
+    // stored form (the hash-source) must see them too.
+    let json_bytes = to_canonical_json(&m);
+    let json: serde_json::Value = serde_json::from_slice(&json_bytes).unwrap();
+    assert_eq!(json["custom_top_level"], "hello");
+    assert_eq!(json["package"]["custom_package_field"], "world");
+    assert_eq!(json["layer"][0]["custom_layer_field"], "extra");
 }
 
 /// Empty optional collections should be omitted from serialized TOML.
