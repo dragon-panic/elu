@@ -610,22 +610,43 @@ impl Store for FsStore {
             }
         }
 
-        // 2. Check diffs/ entries point to existing blobs
+        // 2. Check diffs/ entries point to a blob whose decompressed
+        // content reproduces the diff_id in the path.
         let diffs_dir = self.root.join("diffs");
         for diff_id_str in walk_hash_files(&diffs_dir)? {
             let hash: Hash = diff_id_str.parse()?;
             let did = DiffId(hash);
             let path = self.diff_path(&did);
-            if let Ok(content) = fs::read_to_string(path.as_std_path())
-                && let Ok(blob_hash) = content.trim().parse::<Hash>()
-            {
-                let bid = BlobId(blob_hash);
-                if !self.blob_path(&bid).as_std_path().exists() {
+            let Ok(content) = fs::read_to_string(path.as_std_path()) else {
+                continue;
+            };
+            let Ok(blob_hash) = content.trim().parse::<Hash>() else {
+                continue;
+            };
+            let bid = BlobId(blob_hash);
+            let blob_path = self.blob_path(&bid);
+            let Ok(blob_bytes) = fs::read(blob_path.as_std_path()) else {
+                errors.push(FsckError::OrphanedDiff {
+                    diff_id: did.to_string(),
+                    blob_id: bid.to_string(),
+                });
+                continue;
+            };
+            let computed = match recompute_diff_id(&blob_bytes) {
+                Ok(c) => c,
+                Err(_) => {
                     errors.push(FsckError::OrphanedDiff {
                         diff_id: did.to_string(),
                         blob_id: bid.to_string(),
                     });
+                    continue;
                 }
+            };
+            if computed != did {
+                errors.push(FsckError::OrphanedDiff {
+                    diff_id: did.to_string(),
+                    blob_id: bid.to_string(),
+                });
             }
         }
 
@@ -675,6 +696,41 @@ impl Store for FsStore {
         }
         Ok(report)
     }
+}
+
+/// Hash a stored blob's *decompressed* contents to recover its diff_id.
+/// Used by fsck to verify diff index entries.
+fn recompute_diff_id(blob_bytes: &[u8]) -> Result<DiffId, StoreError> {
+    let encoding = magic::sniff_encoding(blob_bytes).ok_or(StoreError::UnknownEncoding)?;
+    let mut diff_hasher = Hasher::new();
+    match encoding {
+        BlobEncoding::PlainTar => {
+            diff_hasher.update(blob_bytes);
+        }
+        BlobEncoding::Gzip => {
+            let mut decoder = flate2::read::GzDecoder::new(blob_bytes);
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = decoder.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                diff_hasher.update(&buf[..n]);
+            }
+        }
+        BlobEncoding::Zstd => {
+            let mut decoder = zstd::stream::read::Decoder::new(blob_bytes)?;
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                let n = decoder.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                diff_hasher.update(&buf[..n]);
+            }
+        }
+    }
+    Ok(DiffId(diff_hasher.finalize()))
 }
 
 fn validate_ref_component(s: &str) -> Result<(), StoreError> {
