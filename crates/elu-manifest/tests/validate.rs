@@ -441,6 +441,72 @@ include = ["[invalid"]
 }
 
 #[test]
+fn source_rejects_absolute_place() {
+    let toml = r#"
+schema = 1
+[package]
+namespace = "test"
+name = "pkg"
+version = "1.0.0"
+kind = "native"
+description = "test"
+
+[[layer]]
+include = ["src/**"]
+place = "/etc/foo/"
+"#;
+    let err = parse_and_validate_source(toml).unwrap_err();
+    assert!(
+        err.to_string().contains("place"),
+        "error should mention place: {err}",
+    );
+}
+
+#[test]
+fn source_rejects_parent_escape_place() {
+    let toml = r#"
+schema = 1
+[package]
+namespace = "test"
+name = "pkg"
+version = "1.0.0"
+kind = "native"
+description = "test"
+
+[[layer]]
+include = ["src/**"]
+place = "../escape/"
+"#;
+    let err = parse_and_validate_source(toml).unwrap_err();
+    assert!(
+        err.to_string().contains("place"),
+        "error should mention place: {err}",
+    );
+}
+
+#[test]
+fn source_rejects_absolute_strip() {
+    let toml = r#"
+schema = 1
+[package]
+namespace = "test"
+name = "pkg"
+version = "1.0.0"
+kind = "native"
+description = "test"
+
+[[layer]]
+include = ["src/**"]
+strip = "/abs/prefix/"
+"#;
+    let err = parse_and_validate_source(toml).unwrap_err();
+    assert!(
+        err.to_string().contains("strip"),
+        "error should mention strip: {err}",
+    );
+}
+
+#[test]
 fn source_validates_common_rules_too() {
     // Empty kind should fail even in source validation
     let toml = r#"
