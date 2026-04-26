@@ -6,12 +6,31 @@ use crate::global::GlobalCtx;
 use crate::manifest_reader::ManifestParser;
 
 pub fn run(ctx: &GlobalCtx, args: GcArgs) -> Result<(), CliError> {
-    if args.dry_run {
-        return Err(CliError::Generic(
-            "gc --dry-run not implemented in v1 (Store::gc has no dry-run mode)".into(),
-        ));
-    }
     let store = ctx.open_store()?;
+    if args.dry_run {
+        let plan = store.plan_gc(&ManifestParser)?;
+        if ctx.json {
+            let payload = serde_json::json!({
+                "event": "done",
+                "ok": true,
+                "dry_run": true,
+                "objects_to_remove": plan.objects_to_remove.len() as u64,
+                "diffs_to_remove": plan.diffs_to_remove.len() as u64,
+                "tmp_to_remove": plan.tmp_to_remove.len() as u64,
+                "bytes_to_free": plan.bytes_to_free,
+            });
+            println!("{payload}");
+        } else {
+            println!(
+                "would remove {} objects, {} diffs, {} tmp; would free {} bytes",
+                plan.objects_to_remove.len(),
+                plan.diffs_to_remove.len(),
+                plan.tmp_to_remove.len(),
+                plan.bytes_to_free,
+            );
+        }
+        return Ok(());
+    }
     let stats = store.gc(&ManifestParser)?;
     if ctx.json {
         let payload = serde_json::json!({
