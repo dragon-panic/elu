@@ -59,6 +59,70 @@ fn gc_json_emits_done_event_with_stats() {
     assert!(v.get("bytes_freed").is_some());
 }
 
+/// Sorted (relpath, bytes) snapshot of every file under the store root,
+/// used to assert byte-identity across `gc --dry-run`.
+fn store_snapshot(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(p: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>, root: &std::path::Path) {
+        if let Ok(rd) = fs::read_dir(p) {
+            for e in rd.flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    walk(&path, out, root);
+                } else if let Ok(bytes) = fs::read(&path) {
+                    let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                    out.push((rel, bytes));
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out, root);
+    out.sort();
+    out
+}
+
+#[test]
+fn gc_dry_run_reports_plan_without_mutating_store() {
+    let store = TempDir::new().unwrap();
+    build(&store);
+    // Orphan the manifest by removing its ref. Now the manifest blob and its
+    // layer become unreachable.
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args([
+            "--store",
+            store.path().to_str().unwrap(),
+            "refs",
+            "rm",
+            "ns/pkg/0.3.0",
+        ])
+        .assert()
+        .success();
+
+    let before = store_snapshot(store.path());
+    let out = Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "--json", "gc", "--dry-run"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let last = std::str::from_utf8(&out.stdout).unwrap().lines().last().unwrap();
+    let v: serde_json::Value = serde_json::from_str(last).unwrap();
+    assert_eq!(v["event"], "done");
+    assert_eq!(v["dry_run"], true);
+    assert!(
+        v["objects_to_remove"].as_u64().unwrap() >= 1,
+        "expected >=1 object to remove: {v}",
+    );
+    assert!(
+        v["bytes_to_free"].as_u64().unwrap() > 0,
+        "expected bytes_to_free > 0: {v}",
+    );
+
+    let after = store_snapshot(store.path());
+    assert_eq!(before, after, "gc --dry-run must not mutate the store");
+}
+
 #[test]
 fn fsck_succeeds_on_clean_store() {
     let store = TempDir::new().unwrap();
