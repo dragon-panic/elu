@@ -160,6 +160,58 @@ fn fsck_reports_corruption_with_exit_five() {
 }
 
 #[test]
+fn fsck_repair_clears_recoverable_corruption() {
+    let store = TempDir::new().unwrap();
+    build(&store);
+    // Break a ref by deleting the manifest blob it points to.
+    let objects_dir = store.path().join("objects/sha256");
+    let mut victim: Option<std::path::PathBuf> = None;
+    'outer: for entry in fs::read_dir(&objects_dir).unwrap() {
+        let entry = entry.unwrap();
+        if let Some(sub) = fs::read_dir(entry.path()).unwrap().next() {
+            victim = Some(sub.unwrap().path());
+            break 'outer;
+        }
+    }
+    fs::remove_file(victim.unwrap()).unwrap();
+
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "fsck", "--repair"])
+        .assert()
+        .success();
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "fsck"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn fsck_repair_exits_five_when_unrepairable() {
+    let store = TempDir::new().unwrap();
+    build(&store);
+    // Hash-mismatch is unrepairable.
+    let objects_dir = store.path().join("objects/sha256");
+    let mut victim: Option<std::path::PathBuf> = None;
+    'outer: for entry in fs::read_dir(&objects_dir).unwrap() {
+        let entry = entry.unwrap();
+        if let Some(sub) = fs::read_dir(entry.path()).unwrap().next() {
+            victim = Some(sub.unwrap().path());
+            break 'outer;
+        }
+    }
+    fs::write(victim.unwrap(), b"corrupt").unwrap();
+
+    Command::cargo_bin("elu")
+        .unwrap()
+        .args(["--store", store.path().to_str().unwrap(), "fsck", "--repair"])
+        .assert()
+        .failure()
+        .code(5);
+}
+
+#[test]
 fn fsck_help_lists_repair_flag() {
     let assert = Command::cargo_bin("elu").unwrap().args(["fsck", "--help"]).assert().success();
     let s = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
