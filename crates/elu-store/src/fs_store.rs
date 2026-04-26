@@ -382,8 +382,33 @@ impl Store for FsStore {
     }
 
     fn remove_ref(&self, ns: &str, name: &str, version: &str) -> Result<(), StoreError> {
-        let _ = (ns, name, version);
-        unimplemented!("remove_ref")
+        validate_ref_component(ns)?;
+        validate_ref_component(name)?;
+        validate_ref_component(version)?;
+
+        let path = self.ref_path(ns, name, version);
+
+        let lock_path = self.gc_lock_path();
+        let lock_file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(lock_path.as_std_path())
+            .map_err(StoreError::Lock)?;
+        lock_file.lock_shared().map_err(StoreError::Lock)?;
+
+        let result = match fs::remove_file(path.as_std_path()) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Err(StoreError::RefNotFound {
+                namespace: ns.to_string(),
+                name: name.to_string(),
+                version: version.to_string(),
+            }),
+            Err(e) => Err(StoreError::Io(e)),
+        };
+
+        lock_file.unlock().map_err(StoreError::Lock)?;
+        result
     }
 
     fn list_refs(&self, filter: RefFilter) -> Result<Vec<RefEntry>, StoreError> {
