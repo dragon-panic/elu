@@ -37,13 +37,19 @@ pub struct GcStats {
 }
 
 /// Read-only result of a GC scan: enumerates exactly which objects, diffs,
-/// and tmp files would be removed by `apply_gc`. Produced by `plan_gc`.
+/// and tmp files would be removed by `gc`. Produced by `plan_gc`.
 #[derive(Debug, Clone, Default)]
 pub struct GcPlan {
     pub objects_to_remove: Vec<BlobId>,
     pub diffs_to_remove: Vec<DiffId>,
     pub tmp_to_remove: Vec<camino::Utf8PathBuf>,
     pub bytes_to_free: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FsckRepairReport {
+    pub orphaned_diffs_removed: u64,
+    pub broken_refs_removed: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -99,6 +105,12 @@ pub trait Store {
     /// different set if refs change in between.
     fn plan_gc(&self, reader: &dyn ManifestReader) -> Result<GcPlan, StoreError>;
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError>;
+    /// Fix every recoverable issue that `fsck` flags (orphaned diffs,
+    /// broken refs). If `fsck` reports any error that this method cannot
+    /// safely repair (e.g. HashMismatch — corrupted blob), return
+    /// `StoreError::FsckUnrepairable` after applying any safe fixes that
+    /// were possible.
+    fn fsck_repair(&self) -> Result<FsckRepairReport, StoreError>;
 }
 
 pub trait ManifestReader {

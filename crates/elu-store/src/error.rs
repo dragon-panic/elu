@@ -47,4 +47,7 @@ pub enum StoreError {
 
     #[error("manifest read error: {0}")]
     ManifestRead(String),
+
+    #[error("fsck found {0} unrepairable issue(s) — manual intervention required")]
+    FsckUnrepairable(usize),
 }

@@ -11,7 +11,8 @@ use crate::hash::{BlobId, DiffId, Hash, ManifestHash};
 use crate::hasher::Hasher;
 use crate::magic::{self, BlobEncoding};
 use crate::store::{
-    FsckError, GcPlan, GcStats, ManifestReader, PutBlob, RefEntry, RefFilter, Store,
+    FsckError, FsckRepairReport, GcPlan, GcStats, ManifestReader, PutBlob, RefEntry, RefFilter,
+    Store,
 };
 
 pub struct FsStore {
@@ -641,6 +642,11 @@ impl Store for FsStore {
         }
 
         Ok(errors)
+    }
+
+    fn fsck_repair(&self) -> Result<FsckRepairReport, StoreError> {
+        let _ = self;
+        unimplemented!("fsck_repair")
     }
 }
 

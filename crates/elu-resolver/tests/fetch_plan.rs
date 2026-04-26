@@ -93,6 +93,9 @@ impl Store for StubStore {
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError> {
         unreachable!("not used by resolver")
     }
+    fn fsck_repair(&self) -> Result<elu_store::store::FsckRepairReport, StoreError> {
+        unreachable!("not used by resolver")
+    }
 }
 
 /// Slice 12: fetch_plan lists exactly the manifests and layers absent from

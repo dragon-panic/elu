@@ -3,6 +3,7 @@ use std::io::Write;
 use elu_store::atomic::FsyncMode;
 use elu_store::fs_store::FsStore;
 use elu_store::hash::BlobId;
+use elu_store::error::StoreError;
 use elu_store::store::{FsckError, Store};
 
 fn test_store() -> (tempfile::TempDir, FsStore) {
@@ -107,4 +108,69 @@ fn fsck_detects_broken_ref() {
     let errors = store.fsck().unwrap();
     let has_broken_ref = errors.iter().any(|e| matches!(e, FsckError::BrokenRef { .. }));
     assert!(has_broken_ref);
+}
+
+#[test]
+fn fsck_repair_removes_orphaned_diff() {
+    let (dir, store) = test_store();
+    let tar_bytes = make_tar("orphan.txt", b"will have orphaned diff");
+    let gz_bytes = gzip(&tar_bytes);
+    let result = store.put_blob(&mut &gz_bytes[..]).unwrap();
+    let h = &result.blob_id.0;
+    let obj_path = dir
+        .path()
+        .join("objects")
+        .join(h.algo().as_str())
+        .join(h.prefix())
+        .join(h.rest());
+    std::fs::remove_file(&obj_path).unwrap();
+
+    let report = store.fsck_repair().unwrap();
+    assert_eq!(report.orphaned_diffs_removed, 1);
+    assert!(store.fsck().unwrap().is_empty(), "fsck should be clean post-repair");
+}
+
+#[test]
+fn fsck_repair_removes_broken_ref() {
+    let (dir, store) = test_store();
+    let manifest = br#"{"ref": "broken"}"#;
+    let hash = store.put_manifest(manifest).unwrap();
+    store.put_ref("default", "pkg", "1.0.0", &hash).unwrap();
+    let blob_id = BlobId(hash.0.clone());
+    let h = &blob_id.0;
+    let obj_path = dir
+        .path()
+        .join("objects")
+        .join(h.algo().as_str())
+        .join(h.prefix())
+        .join(h.rest());
+    std::fs::remove_file(&obj_path).unwrap();
+
+    let report = store.fsck_repair().unwrap();
+    assert_eq!(report.broken_refs_removed, 1);
+    assert!(store.fsck().unwrap().is_empty(), "fsck should be clean post-repair");
+}
+
+#[test]
+fn fsck_repair_returns_unrepairable_on_hash_mismatch() {
+    let (dir, store) = test_store();
+    let manifest = br#"{"will": "corrupt"}"#;
+    let hash = store.put_manifest(manifest).unwrap();
+    let blob_id = BlobId(hash.0.clone());
+    let h = &blob_id.0;
+    let obj_path = dir
+        .path()
+        .join("objects")
+        .join(h.algo().as_str())
+        .join(h.prefix())
+        .join(h.rest());
+    let mut data = std::fs::read(&obj_path).unwrap();
+    data[0] ^= 0xff;
+    std::fs::write(&obj_path, &data).unwrap();
+
+    let err = store.fsck_repair().unwrap_err();
+    assert!(
+        matches!(err, StoreError::FsckUnrepairable(n) if n >= 1),
+        "expected FsckUnrepairable, got: {err:?}",
+    );
 }
