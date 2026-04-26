@@ -151,6 +151,32 @@ fn ref_component_validation_rejects_empty() {
 }
 
 #[test]
+fn remove_ref_deletes_ref_but_keeps_manifest_blob() {
+    let (_dir, store) = test_store();
+    let manifest = br#"{"test": "remove-ref"}"#;
+    let hash = store.put_manifest(manifest).unwrap();
+
+    store.put_ref("default", "rmpkg", "1.0.0", &hash).unwrap();
+    store.remove_ref("default", "rmpkg", "1.0.0").unwrap();
+
+    assert!(store.get_ref("default", "rmpkg", "1.0.0").unwrap().is_none());
+    assert!(
+        store.get_manifest(&hash).unwrap().is_some(),
+        "remove_ref must not delete the manifest blob — gc owns that",
+    );
+}
+
+#[test]
+fn remove_ref_missing_returns_ref_not_found() {
+    let (_dir, store) = test_store();
+    let err = store.remove_ref("default", "ghost", "1.0.0").unwrap_err();
+    assert!(
+        matches!(err, elu_store::error::StoreError::RefNotFound { .. }),
+        "expected RefNotFound, got: {err:?}",
+    );
+}
+
+#[test]
 fn multiple_versions_same_package() {
     let (_dir, store) = test_store();
     let m1 = br#"{"ver": "1"}"#;

@@ -381,6 +381,11 @@ impl Store for FsStore {
         }
     }
 
+    fn remove_ref(&self, ns: &str, name: &str, version: &str) -> Result<(), StoreError> {
+        let _ = (ns, name, version);
+        unimplemented!("remove_ref")
+    }
+
     fn list_refs(&self, filter: RefFilter) -> Result<Vec<RefEntry>, StoreError> {
         let refs_dir = self.root.join("refs");
         let mut entries = Vec::new();

@@ -23,6 +23,13 @@ pub enum StoreError {
         incoming: ManifestHash,
     },
 
+    #[error("ref not found: {namespace}/{name}@{version}")]
+    RefNotFound {
+        namespace: String,
+        name: String,
+        version: String,
+    },
+
     #[error("invalid ref component: {0}")]
     InvalidRefComponent(String),
 

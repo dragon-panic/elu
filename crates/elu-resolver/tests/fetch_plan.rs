@@ -81,6 +81,9 @@ impl Store for StubStore {
     fn list_refs(&self, _filter: RefFilter) -> Result<Vec<RefEntry>, StoreError> {
         Ok(vec![])
     }
+    fn remove_ref(&self, _ns: &str, _name: &str, _version: &str) -> Result<(), StoreError> {
+        unreachable!("not used by resolver")
+    }
     fn gc(&self, _reader: &dyn ManifestReader) -> Result<GcStats, StoreError> {
         unreachable!("not used by resolver")
     }

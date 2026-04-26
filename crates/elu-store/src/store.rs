@@ -80,6 +80,7 @@ pub trait Store {
         version: &str,
     ) -> Result<Option<ManifestHash>, StoreError>;
     fn list_refs(&self, filter: RefFilter) -> Result<Vec<RefEntry>, StoreError>;
+    fn remove_ref(&self, ns: &str, name: &str, version: &str) -> Result<(), StoreError>;
 
     fn gc(&self, reader: &dyn ManifestReader) -> Result<GcStats, StoreError>;
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError>;
