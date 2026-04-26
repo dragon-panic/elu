@@ -174,6 +174,89 @@ fn gc_cleans_stale_tmp_files() {
     assert!(fresh_path.exists());
 }
 
+/// Recursively snapshot every file under `root` as a sorted (relpath, bytes) list.
+/// Used to assert byte-identity of the store across a read-only operation.
+fn store_snapshot(root: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    fn walk(p: &std::path::Path, out: &mut Vec<(String, Vec<u8>)>, root: &std::path::Path) {
+        if let Ok(rd) = std::fs::read_dir(p) {
+            for e in rd.flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    walk(&path, out, root);
+                } else if let Ok(bytes) = std::fs::read(&path) {
+                    let rel = path.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                    out.push((rel, bytes));
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut out, root);
+    out.sort();
+    out
+}
+
+#[test]
+fn plan_gc_returns_unreachable_set_without_mutating_store() {
+    let (dir, store) = test_store();
+
+    // Reachable: blob → manifest → ref
+    let tar_bytes = make_tar("reachable.txt", b"reachable");
+    let gz_bytes = gzip(&tar_bytes);
+    let live = store.put_blob(&mut &gz_bytes[..]).unwrap();
+    let manifest = format!(r#"{{"layers": ["{}"], "dependencies": []}}"#, live.diff_id);
+    let manifest_hash = store.put_manifest(manifest.as_bytes()).unwrap();
+    store.put_ref("default", "pkg", "1.0.0", &manifest_hash).unwrap();
+
+    // Unreachable: orphan blob with no ref or manifest
+    let orphan_tar = make_tar("orphan.txt", b"orphan data");
+    let orphan_gz = gzip(&orphan_tar);
+    let orphan = store.put_blob(&mut &orphan_gz[..]).unwrap();
+
+    let before = store_snapshot(dir.path());
+
+    let plan = store.plan_gc(&TestManifestReader).unwrap();
+
+    assert!(
+        plan.objects_to_remove.iter().any(|b| b == &orphan.blob_id),
+        "plan must name the orphan blob; got: {:?}",
+        plan.objects_to_remove,
+    );
+    assert!(
+        !plan.objects_to_remove.iter().any(|b| b == &live.blob_id),
+        "plan must not name reachable blobs; got: {:?}",
+        plan.objects_to_remove,
+    );
+    assert!(plan.bytes_to_free > 0, "plan must report bytes that would be freed");
+
+    let after = store_snapshot(dir.path());
+    assert_eq!(before, after, "plan_gc must not mutate the store");
+}
+
+#[test]
+fn gc_via_plan_then_apply_matches_legacy_gc() {
+    let (_dir, store) = test_store();
+
+    // Same setup as gc_reclaims_unreachable_objects: one reachable, one orphan.
+    let tar_bytes = make_tar("reachable.txt", b"reachable");
+    let gz_bytes = gzip(&tar_bytes);
+    let live = store.put_blob(&mut &gz_bytes[..]).unwrap();
+    let manifest = format!(r#"{{"layers": ["{}"], "dependencies": []}}"#, live.diff_id);
+    let manifest_hash = store.put_manifest(manifest.as_bytes()).unwrap();
+    store.put_ref("default", "pkg", "1.0.0", &manifest_hash).unwrap();
+
+    let orphan_tar = make_tar("orphan.txt", b"orphan data");
+    let orphan_gz = gzip(&orphan_tar);
+    let orphan = store.put_blob(&mut &orphan_gz[..]).unwrap();
+
+    let plan = store.plan_gc(&TestManifestReader).unwrap();
+    let stats = store.apply_gc(&plan).unwrap();
+
+    assert!(stats.objects_removed >= 1);
+    assert!(!store.has(&orphan.blob_id).unwrap(), "orphan must be gone");
+    assert!(store.has(&live.blob_id).unwrap(), "reachable must survive");
+}
+
 #[test]
 fn gc_cleans_orphaned_diffs() {
     let (_dir, store) = test_store();

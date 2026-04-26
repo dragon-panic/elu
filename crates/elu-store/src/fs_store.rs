@@ -11,7 +11,7 @@ use crate::hash::{BlobId, DiffId, Hash, ManifestHash};
 use crate::hasher::Hasher;
 use crate::magic::{self, BlobEncoding};
 use crate::store::{
-    FsckError, GcStats, ManifestReader, PutBlob, RefEntry, RefFilter, Store,
+    FsckError, GcPlan, GcStats, ManifestReader, PutBlob, RefEntry, RefFilter, Store,
 };
 
 pub struct FsStore {
@@ -545,6 +545,14 @@ impl Store for FsStore {
 
         lock_file.unlock().map_err(StoreError::Lock)?;
         Ok(stats)
+    }
+
+    fn plan_gc(&self, _reader: &dyn ManifestReader) -> Result<GcPlan, StoreError> {
+        unimplemented!("plan_gc")
+    }
+
+    fn apply_gc(&self, _plan: &GcPlan) -> Result<GcStats, StoreError> {
+        unimplemented!("apply_gc")
     }
 
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError> {

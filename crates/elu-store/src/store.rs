@@ -36,6 +36,16 @@ pub struct GcStats {
     pub bytes_freed: u64,
 }
 
+/// Read-only result of a GC scan: enumerates exactly which objects, diffs,
+/// and tmp files would be removed by `apply_gc`. Produced by `plan_gc`.
+#[derive(Debug, Clone, Default)]
+pub struct GcPlan {
+    pub objects_to_remove: Vec<BlobId>,
+    pub diffs_to_remove: Vec<DiffId>,
+    pub tmp_to_remove: Vec<camino::Utf8PathBuf>,
+    pub bytes_to_free: u64,
+}
+
 #[derive(Debug, Clone)]
 pub enum FsckError {
     HashMismatch {
@@ -83,6 +93,8 @@ pub trait Store {
     fn remove_ref(&self, ns: &str, name: &str, version: &str) -> Result<(), StoreError>;
 
     fn gc(&self, reader: &dyn ManifestReader) -> Result<GcStats, StoreError>;
+    fn plan_gc(&self, reader: &dyn ManifestReader) -> Result<GcPlan, StoreError>;
+    fn apply_gc(&self, plan: &GcPlan) -> Result<GcStats, StoreError>;
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError>;
 }
 

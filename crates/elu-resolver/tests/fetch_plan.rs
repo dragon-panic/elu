@@ -87,6 +87,12 @@ impl Store for StubStore {
     fn gc(&self, _reader: &dyn ManifestReader) -> Result<GcStats, StoreError> {
         unreachable!("not used by resolver")
     }
+    fn plan_gc(&self, _reader: &dyn ManifestReader) -> Result<elu_store::store::GcPlan, StoreError> {
+        unreachable!("not used by resolver")
+    }
+    fn apply_gc(&self, _plan: &elu_store::store::GcPlan) -> Result<GcStats, StoreError> {
+        unreachable!("not used by resolver")
+    }
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError> {
         unreachable!("not used by resolver")
     }
