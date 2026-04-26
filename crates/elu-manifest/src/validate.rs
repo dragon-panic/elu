@@ -134,9 +134,12 @@ fn validate_hook_op(index: usize, op: &HookOp) -> Result<(), ManifestError> {
         HookOp::Mkdir { path, .. } => {
             reject_absolute_path(index, path)?;
         }
-        HookOp::Symlink { from, to, .. } => {
+        HookOp::Symlink { from, to: _, .. } => {
+            // Only the link path (`from`) is rooted at staging.
+            // `to` is the symlink target — the executor leaves it
+            // unresolved, so absolute targets refer to runtime
+            // output paths, not the host filesystem (PRD hooks.md:166).
             reject_absolute_path(index, from)?;
-            reject_absolute_path(index, to)?;
         }
         HookOp::Write { path, content, .. } => {
             reject_absolute_path(index, path)?;
