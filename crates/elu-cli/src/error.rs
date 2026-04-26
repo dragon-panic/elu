@@ -53,7 +53,10 @@ impl CliError {
 
 impl From<StoreError> for CliError {
     fn from(e: StoreError) -> Self {
-        CliError::Store(e.to_string())
+        match e {
+            StoreError::RefNotFound { .. } => CliError::Resolution(e.to_string()),
+            other => CliError::Store(other.to_string()),
+        }
     }
 }
 

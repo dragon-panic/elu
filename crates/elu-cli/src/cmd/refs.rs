@@ -49,11 +49,8 @@ pub fn run(ctx: &GlobalCtx, args: RefsArgs) -> Result<(), CliError> {
         }
         RefsAction::Rm { spec } => {
             let (ns, name, version) = parse_spec(&spec)?;
-            // No remove-ref API in v1 store. Fail with a clear message.
-            let _ = (ns, name, version);
-            Err(CliError::Generic(
-                "refs rm not implemented (no Store::remove_ref in v1)".into(),
-            ))
+            store.remove_ref(ns, name, version)?;
+            Ok(())
         }
     }
 }
