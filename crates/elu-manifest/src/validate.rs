@@ -57,6 +57,34 @@ pub fn validate_source(m: &Manifest) -> Result<(), ManifestError> {
                 .build()
                 .map_err(|e| ManifestError::InvalidGlob(e.to_string()))?;
         }
+        if let Some(s) = &layer.strip {
+            reject_unsafe_layer_path(i, "strip", s)?;
+        }
+        if let Some(s) = &layer.place {
+            reject_unsafe_layer_path(i, "place", s)?;
+        }
+    }
+    Ok(())
+}
+
+fn reject_unsafe_layer_path(
+    index: usize,
+    field: &'static str,
+    value: &str,
+) -> Result<(), ManifestError> {
+    if value.starts_with('/') {
+        return Err(ManifestError::UnsafeLayerPath {
+            index,
+            field,
+            msg: format!("absolute path not allowed: {value}"),
+        });
+    }
+    if value.split('/').any(|seg| seg == "..") {
+        return Err(ManifestError::UnsafeLayerPath {
+            index,
+            field,
+            msg: format!("`..` not allowed: {value}"),
+        });
     }
     Ok(())
 }

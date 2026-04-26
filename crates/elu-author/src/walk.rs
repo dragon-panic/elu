@@ -41,6 +41,23 @@ pub fn walk_layer(
             ));
         }
     }
+    for (field, value) in [("strip", layer.strip.as_deref()), ("place", layer.place.as_deref())] {
+        let Some(s) = value else { continue };
+        if s.starts_with('/') {
+            return Err(Diagnostic::new(
+                format!("layer.{field}"),
+                ErrorCode::LayerAbsolutePath,
+                format!("absolute path not allowed: {s}"),
+            ));
+        }
+        if s.split('/').any(|seg| seg == "..") {
+            return Err(Diagnostic::new(
+                format!("layer.{field}"),
+                ErrorCode::LayerParentEscape,
+                format!("`..` not allowed: {s}"),
+            ));
+        }
+    }
 
     let include = build_globset(&layer.include)?;
     let exclude = build_globset(&layer.exclude)?;

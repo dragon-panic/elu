@@ -38,4 +38,11 @@ pub enum ManifestError {
 
     #[error("invalid glob pattern: {0}")]
     InvalidGlob(String),
+
+    #[error("layer {index}.{field}: {msg}")]
+    UnsafeLayerPath {
+        index: usize,
+        field: &'static str,
+        msg: String,
+    },
 }

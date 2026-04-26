@@ -222,5 +222,13 @@ pub fn from_manifest_err(err: &elu_manifest::ManifestError) -> Diagnostic {
             msg.clone(),
         ),
         M::InvalidGlob(s) => Diagnostic::new("", ErrorCode::GlobInvalid, format!("invalid glob: {s}")),
+        M::UnsafeLayerPath { index, field, msg } => {
+            let code = if msg.contains("absolute") {
+                ErrorCode::LayerAbsolutePath
+            } else {
+                ErrorCode::LayerParentEscape
+            };
+            Diagnostic::new(format!("layer[{index}].{field}"), code, msg.clone())
+        }
     }
 }
