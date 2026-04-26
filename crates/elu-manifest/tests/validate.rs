@@ -301,6 +301,59 @@ mode = "+x"
     parse_and_validate_stored(toml).unwrap();
 }
 
+#[test]
+fn symlink_with_absolute_target_is_valid() {
+    // PRD docs/prd/hooks.md:166: absolute symlink targets are allowed —
+    // they refer to the path as seen at runtime in the materialized
+    // output, not to anywhere on the host. The runtime executor
+    // (elu-hooks/src/ops/symlink.rs) deliberately doesn't resolve `to`,
+    // so the validator must not reject it either.
+    let toml = r#"
+schema = 1
+[package]
+namespace = "test"
+name = "pkg"
+version = "1.0.0"
+kind = "native"
+description = "test"
+
+[[layer]]
+diff_id = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+size = 100
+
+[[hook.op]]
+type = "symlink"
+from = "bin/python"
+to = "/usr/bin/python3"
+"#;
+    parse_and_validate_stored(toml).unwrap();
+}
+
+#[test]
+fn symlink_with_absolute_link_path_is_rejected() {
+    // The link path itself (`from`) IS rooted at staging, so it must
+    // stay relative — only `to` is allowed to be absolute.
+    let toml = r#"
+schema = 1
+[package]
+namespace = "test"
+name = "pkg"
+version = "1.0.0"
+kind = "native"
+description = "test"
+
+[[layer]]
+diff_id = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+size = 100
+
+[[hook.op]]
+type = "symlink"
+from = "/etc/python"
+to = "bin/python3"
+"#;
+    parse_and_validate_stored(toml).unwrap_err();
+}
+
 // --- Source form validation ---
 
 #[test]
