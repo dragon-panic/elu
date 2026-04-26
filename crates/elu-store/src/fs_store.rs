@@ -645,8 +645,35 @@ impl Store for FsStore {
     }
 
     fn fsck_repair(&self) -> Result<FsckRepairReport, StoreError> {
-        let _ = self;
-        unimplemented!("fsck_repair")
+        let mut report = FsckRepairReport::default();
+        let mut unrepairable = 0usize;
+
+        for err in self.fsck()? {
+            match err {
+                FsckError::HashMismatch { .. } => {
+                    unrepairable += 1;
+                }
+                FsckError::OrphanedDiff { diff_id, .. } => {
+                    let hash: Hash = diff_id.parse()?;
+                    let path = self.diff_path(&DiffId(hash));
+                    let _ = fs::remove_file(path.as_std_path());
+                    report.orphaned_diffs_removed += 1;
+                }
+                FsckError::BrokenRef { ref_path, .. } => {
+                    let parts: Vec<&str> = ref_path.split('/').collect();
+                    if let [ns, name, version] = parts.as_slice() {
+                        let path = self.ref_path(ns, name, version);
+                        let _ = fs::remove_file(path.as_std_path());
+                        report.broken_refs_removed += 1;
+                    }
+                }
+            }
+        }
+
+        if unrepairable > 0 {
+            return Err(StoreError::FsckUnrepairable(unrepairable));
+        }
+        Ok(report)
     }
 }
 
