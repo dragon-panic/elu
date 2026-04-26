@@ -1,0 +1,13 @@
+{
+  "id": "utwP",
+  "title": "elu explain --diff <old> <new>",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-26T15:04:44.035371782Z",
+  "updated_at": "2026-04-26T15:04:44.035371782Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "3idQ"
+}

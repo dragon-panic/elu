@@ -1,11 +1,11 @@
 {
   "id": "0CZW",
   "title": "Ring inversion cleanup — restore PRD ring model before MqEx",
-  "state": "latent",
+  "state": "integrated",
   "shadowed": false,
   "part": null,
   "created_at": "2026-04-25T16:14:32.621868301Z",
-  "updated_at": "2026-04-25T16:14:32.621868301Z",
+  "updated_at": "2026-04-26T15:09:13.321898189Z",
   "tags": [
     "workflow:code-task"
   ],

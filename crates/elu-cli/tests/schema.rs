@@ -38,13 +38,25 @@ fn schema_source_emits_source_form() {
 }
 
 #[test]
-fn schema_yaml_unsupported_in_v1_exits_one() {
-    let out = Command::cargo_bin("elu")
+fn schema_yaml_round_trips_to_default_json() {
+    let yaml_out = Command::cargo_bin("elu")
         .unwrap()
         .args(["schema", "--yaml"])
         .output()
         .unwrap();
-    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        yaml_out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&yaml_out.stderr)
+    );
+    let json_out = Command::cargo_bin("elu").unwrap().arg("schema").output().unwrap();
+    assert!(json_out.status.success());
+
+    let from_yaml: Value = serde_norway::from_slice(&yaml_out.stdout)
+        .expect("yaml output must parse as YAML");
+    let from_json: Value = serde_json::from_slice(&json_out.stdout)
+        .expect("json output must parse as JSON");
+    assert_eq!(from_yaml, from_json, "yaml schema must round-trip to the json schema value");
 }
 
 #[test]

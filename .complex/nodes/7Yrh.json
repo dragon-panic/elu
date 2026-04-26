@@ -1,0 +1,19 @@
+{
+  "id": "7Yrh",
+  "title": "Store::gc dry-run mode",
+  "state": "latent",
+  "shadowed": false,
+  "part": null,
+  "created_at": "2026-04-26T15:04:57.064949282Z",
+  "updated_at": "2026-04-26T15:04:57.064949282Z",
+  "tags": [
+    "workflow:code-task"
+  ],
+  "parent": "3idQ",
+  "edges": [
+    {
+      "to": "SZS1",
+      "type": "blocks"
+    }
+  ]
+}
