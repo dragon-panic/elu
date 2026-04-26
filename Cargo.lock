@@ -539,6 +539,7 @@ dependencies = [
  "elu-stacker",
  "elu-store",
  "http-body-util",
+ "notify",
  "predicates",
  "semver",
  "serde",
