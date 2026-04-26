@@ -62,6 +62,98 @@ fn render(template: &str, namespace: &str, name: &str) -> String {
         .replace("{{name}}", name)
 }
 
+/// Infer a project name by recognizing one well-known package file in
+/// `source_dir`. Supported: `Cargo.toml`, `package.json`, `pyproject.toml`.
+/// Errors if zero or multiple are present — multi-ecosystem inference is
+/// out of scope for v1.
+type NameParser = fn(&str) -> Result<Option<String>, Diagnostic>;
+
+pub fn infer_name_from_path(source_dir: &Utf8Path) -> Result<String, Diagnostic> {
+    let candidates: &[(&str, NameParser)] = &[
+        ("Cargo.toml", parse_cargo_toml_name),
+        ("package.json", parse_package_json_name),
+        ("pyproject.toml", parse_pyproject_toml_name),
+    ];
+
+    let mut matches: Vec<(&str, String)> = Vec::new();
+    for (file, parser) in candidates {
+        let path = source_dir.join(file);
+        if path.as_std_path().exists()
+            && let Ok(content) = fs::read_to_string(path.as_std_path())
+            && let Some(name) = parser(&content)?
+        {
+            matches.push((file, name));
+        }
+    }
+
+    match matches.as_slice() {
+        [] => Err(Diagnostic::new(
+            "init --from",
+            ErrorCode::StoreError,
+            format!(
+                "no recognized project files in {source_dir}; expected one of: Cargo.toml, package.json, pyproject.toml",
+            ),
+        )),
+        [single] => Ok(single.1.clone()),
+        many => {
+            let names: Vec<&str> = many.iter().map(|(f, _)| *f).collect();
+            Err(Diagnostic::new(
+                "init --from",
+                ErrorCode::StoreError,
+                format!(
+                    "multiple recognized project files in {source_dir}: {}; --from accepts only one",
+                    names.join(" + "),
+                ),
+            ))
+        }
+    }
+}
+
+fn parse_cargo_toml_name(content: &str) -> Result<Option<String>, Diagnostic> {
+    let v: toml::Value = toml::from_str(content).map_err(|e| {
+        Diagnostic::new(
+            "Cargo.toml",
+            ErrorCode::StoreError,
+            format!("parse: {e}"),
+        )
+    })?;
+    Ok(v.get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string()))
+}
+
+fn parse_package_json_name(content: &str) -> Result<Option<String>, Diagnostic> {
+    let v: serde_json::Value = serde_json::from_str(content).map_err(|e| {
+        Diagnostic::new(
+            "package.json",
+            ErrorCode::StoreError,
+            format!("parse: {e}"),
+        )
+    })?;
+    Ok(v.get("name").and_then(|n| n.as_str()).map(|s| s.to_string()))
+}
+
+fn parse_pyproject_toml_name(content: &str) -> Result<Option<String>, Diagnostic> {
+    let v: toml::Value = toml::from_str(content).map_err(|e| {
+        Diagnostic::new(
+            "pyproject.toml",
+            ErrorCode::StoreError,
+            format!("parse: {e}"),
+        )
+    })?;
+    let project_name = v
+        .get("project")
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str());
+    let poetry_name = v
+        .get("tool")
+        .and_then(|t| t.get("poetry"))
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str());
+    Ok(project_name.or(poetry_name).map(|s| s.to_string()))
+}
+
 /// Source of template packages. Satisfied by a registry client in
 /// production and by a fake in tests.
 pub trait TemplateProvider {

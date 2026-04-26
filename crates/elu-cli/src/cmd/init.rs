@@ -1,20 +1,26 @@
-use elu_author::init::{init_builtin, BuiltinKind, InitOpts};
+use elu_author::init::{infer_name_from_path, init_builtin, BuiltinKind, InitOpts};
 
 use crate::cli::{BuiltinKind as CliKind, InitArgs};
 use crate::error::CliError;
 use crate::global::GlobalCtx;
 
 pub fn run(_ctx: &GlobalCtx, args: InitArgs) -> Result<(), CliError> {
-    if args.from.is_some() {
-        return Err(CliError::Generic(
-            "init --from inference not implemented in v1".into(),
-        ));
-    }
     if args.template.is_some() {
         return Err(CliError::Generic(
             "init --template not implemented in v1 (depends on registry template fetcher)".into(),
         ));
     }
+
+    if let Some(from) = &args.from {
+        let name = infer_name_from_path(from)?;
+        let opts = InitOpts {
+            name,
+            namespace: args.namespace,
+        };
+        init_builtin(&args.path, BuiltinKind::Native, &opts)?;
+        return Ok(());
+    }
+
     let kind = args
         .kind
         .ok_or_else(|| CliError::Usage("init: --kind, --from, or --template is required".into()))?;
