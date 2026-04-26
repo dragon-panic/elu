@@ -93,8 +93,11 @@ pub trait Store {
     fn remove_ref(&self, ns: &str, name: &str, version: &str) -> Result<(), StoreError>;
 
     fn gc(&self, reader: &dyn ManifestReader) -> Result<GcStats, StoreError>;
+    /// Read-only GC scan: enumerates exactly what `gc` would remove, without
+    /// touching the store. Suitable for `gc --dry-run` style reporting.
+    /// Note: this is a snapshot — running `gc` afterward may produce a
+    /// different set if refs change in between.
     fn plan_gc(&self, reader: &dyn ManifestReader) -> Result<GcPlan, StoreError>;
-    fn apply_gc(&self, plan: &GcPlan) -> Result<GcStats, StoreError>;
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError>;
 }
 

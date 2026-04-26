@@ -551,10 +551,6 @@ impl Store for FsStore {
         unimplemented!("plan_gc")
     }
 
-    fn apply_gc(&self, _plan: &GcPlan) -> Result<GcStats, StoreError> {
-        unimplemented!("apply_gc")
-    }
-
     fn fsck(&self) -> Result<Vec<FsckError>, StoreError> {
         let mut errors = Vec::new();
 

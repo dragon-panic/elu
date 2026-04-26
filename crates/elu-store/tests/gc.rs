@@ -234,10 +234,10 @@ fn plan_gc_returns_unreachable_set_without_mutating_store() {
 }
 
 #[test]
-fn gc_via_plan_then_apply_matches_legacy_gc() {
+fn plan_gc_matches_what_gc_actually_removes() {
     let (_dir, store) = test_store();
 
-    // Same setup as gc_reclaims_unreachable_objects: one reachable, one orphan.
+    // One reachable, one orphan.
     let tar_bytes = make_tar("reachable.txt", b"reachable");
     let gz_bytes = gzip(&tar_bytes);
     let live = store.put_blob(&mut &gz_bytes[..]).unwrap();
@@ -250,11 +250,17 @@ fn gc_via_plan_then_apply_matches_legacy_gc() {
     let orphan = store.put_blob(&mut &orphan_gz[..]).unwrap();
 
     let plan = store.plan_gc(&TestManifestReader).unwrap();
-    let stats = store.apply_gc(&plan).unwrap();
+    let stats = store.gc(&TestManifestReader).unwrap();
 
-    assert!(stats.objects_removed >= 1);
-    assert!(!store.has(&orphan.blob_id).unwrap(), "orphan must be gone");
-    assert!(store.has(&live.blob_id).unwrap(), "reachable must survive");
+    assert_eq!(
+        plan.objects_to_remove.len() as u64,
+        stats.objects_removed,
+        "plan size must match gc stats",
+    );
+    assert!(plan.objects_to_remove.iter().any(|b| b == &orphan.blob_id));
+    assert!(!plan.objects_to_remove.iter().any(|b| b == &live.blob_id));
+    assert!(!store.has(&orphan.blob_id).unwrap(), "gc removed orphan");
+    assert!(store.has(&live.blob_id).unwrap(), "gc kept reachable");
 }
 
 #[test]
