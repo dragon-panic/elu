@@ -16,6 +16,10 @@ use crate::walk::{walk_layer, WalkOpts};
 pub struct BuildOpts {
     pub check_only: bool,
     pub strict: bool,
+    /// When true, overwrite an existing ref pointing to a different manifest
+    /// hash instead of failing with a conflict. Used by `build --watch`,
+    /// where each rebuild produces a new hash for the same package version.
+    pub force_ref: bool,
 }
 
 #[derive(Debug)]
@@ -175,14 +179,24 @@ pub fn build(
     let manifest_hash = store.put_manifest(&bytes).map_err(|e| {
         Diagnostic::new("", ErrorCode::StoreError, format!("put_manifest: {e}"))
     })?;
-    store
-        .put_ref(
-            &stored.package.namespace,
-            &stored.package.name,
-            &stored.package.version.to_string(),
-            &manifest_hash,
-        )
-        .map_err(|e| Diagnostic::new("", ErrorCode::StoreError, format!("put_ref: {e}")))?;
+    let ns = &stored.package.namespace;
+    let name = &stored.package.name;
+    let version = stored.package.version.to_string();
+    let put_result = store.put_ref(ns, name, &version, &manifest_hash);
+    if let Err(e) = &put_result
+        && opts.force_ref
+        && matches!(e, elu_store::error::StoreError::RefConflict { .. })
+    {
+        // Overwrite: drop the old ref and re-put the new manifest hash.
+        let _ = store.remove_ref(ns, name, &version);
+        store.put_ref(ns, name, &version, &manifest_hash).map_err(|e| {
+            Diagnostic::new("", ErrorCode::StoreError, format!("put_ref (force): {e}"))
+        })?;
+    } else {
+        put_result.map_err(|e| {
+            Diagnostic::new("", ErrorCode::StoreError, format!("put_ref: {e}"))
+        })?;
+    }
 
     Ok((
         report,

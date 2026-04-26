@@ -68,6 +68,7 @@ fn strict_promotes_sensitive_warning_to_error() {
         &proj_root,
         &store,
         &BuildOpts {
+            force_ref: false,
             check_only: false,
             strict: true,
         },

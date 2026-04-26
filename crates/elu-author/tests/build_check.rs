@@ -39,6 +39,7 @@ fn check_only_does_not_write_manifest_or_blob() {
         proj_root,
         &store,
         &BuildOpts {
+            force_ref: false,
             check_only: true,
             strict: false,
         },
@@ -83,6 +84,7 @@ include = ["target/release/does-not-exist"]
         proj_root,
         &store,
         &BuildOpts {
+            force_ref: false,
             check_only: true,
             strict: false,
         },

@@ -71,9 +71,18 @@ fn build_watch_rebuilds_on_input_change() {
     thread::sleep(Duration::from_millis(200));
     fs::write(&watched_file, "second").unwrap();
 
-    let second = rx
-        .recv_timeout(Duration::from_secs(15))
-        .expect("rebuild did not fire after file change");
+    let second = match rx.recv_timeout(Duration::from_secs(15)) {
+        Ok(s) => s,
+        Err(e) => {
+            let _ = child.kill();
+            let out = child.wait_with_output().ok();
+            panic!(
+                "rebuild did not fire ({e:?})\nchild stderr:\n{}",
+                out.map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                    .unwrap_or_default(),
+            );
+        }
+    };
     assert!(second.contains("\"ok\":true"), "rebuild not ok: {second}");
 
     let _ = child.kill();
