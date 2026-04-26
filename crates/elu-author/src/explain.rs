@@ -54,6 +54,33 @@ pub fn explain_text(m: &Manifest) -> String {
     out
 }
 
+pub fn diff_text(d: &ExplainDiff) -> String {
+    let mut out = String::new();
+    if let Some(vc) = &d.version_change {
+        writeln!(out, "version: {vc}").ok();
+    } else {
+        writeln!(out, "version: unchanged").ok();
+    }
+    writeln!(out).ok();
+
+    section(&mut out, "Dependencies added", &d.dependencies_added);
+    section(&mut out, "Dependencies removed", &d.dependencies_removed);
+    section(&mut out, "Hook ops added", &d.hook_ops_added);
+    section(&mut out, "Hook ops removed", &d.hook_ops_removed);
+    out
+}
+
+fn section(out: &mut String, header: &str, items: &[String]) {
+    if items.is_empty() {
+        return;
+    }
+    writeln!(out, "{header} ({})", items.len()).ok();
+    for it in items {
+        writeln!(out, "  {it}").ok();
+    }
+    writeln!(out).ok();
+}
+
 pub fn diff_manifests(a: &Manifest, b: &Manifest) -> ExplainDiff {
     let version_change = if a.package.version != b.package.version {
         Some(format!("{} -> {}", a.package.version, b.package.version))
